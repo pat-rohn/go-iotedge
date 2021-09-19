@@ -14,3 +14,7 @@ FROM
   $__timeFilter("time") AND
   Tag ilike 'Wemos2Temperature'
 ```
+
+## Example using [Grafana](https://grafana.com/)
+
+![alt text](https://raw.githubusercontent.com/pat-rohn/go-iotedge/main/grafana-example.png)
