@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	iotedge "github.com/pat-rohn/go-iotedge"
 	startup "github.com/pat-rohn/go-startup"
-	timeseries "github.com/pat-rohn/timeseries"
+	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"picloud.ch/schusti/pkg/iotedge"
 )
 
 const (
