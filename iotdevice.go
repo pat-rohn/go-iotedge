@@ -2,7 +2,6 @@ package iotedge
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/jinzhu/gorm"
 	log "github.com/sirupsen/logrus"
@@ -30,39 +29,40 @@ func initialMigration() error {
 	return nil
 }
 
-func saveDefaultDeviceConfig(deviceDesc DeviceDesc) error {
+func createDefaultDevice(deviceDesc DeviceDesc) (Device, error) {
 	logFields := log.Fields{"fnct": "saveDefaultDeviceConfig"}
 	log.WithFields(logFields).Infoln("Test")
 	db, err := gorm.Open("sqlite3", DeviceDatabaseName)
 	if err != nil {
-		return err
+		return Device{}, err
 	}
 	defer db.Close()
 
 	var sensorSettings []Sensor
 	for _, sensor := range deviceDesc.Sensors {
 		sensorSetting := Sensor{
-			SensorName:         sensor,
-			Offset:             0.0,
-			AquisitionInterval: time.Duration(time.Second * 60),
+			Name:   sensor,
+			Offset: 0.0,
 		}
 		sensorSettings = append(sensorSettings, sensorSetting)
 	}
 	dev := Device{
-		Name:    deviceDesc.Name,
-		Sensors: sensorSettings,
+		Name:     deviceDesc.Name,
+		Sensors:  sensorSettings,
+		Interval: 60.0,
+		Buffer:   3,
 	}
 
 	result := db.Create(&dev)
 	if err = result.Error; err != nil || result.RowsAffected <= 0 {
 		log.WithFields(logFields).Errorf("Failed to save device %v", err)
-		return err
+		return Device{}, err
 	}
 
-	return nil
+	return dev, err
 }
 
-func getDeviceConfig(deviceName string) (Device, error) {
+func getDevice(deviceName string) (Device, error) {
 	logFields := log.Fields{"fnct": "getDeviceConfig"}
 	log.WithFields(logFields).Infoln("Test")
 	db, err := gorm.Open("sqlite3", DeviceDatabaseName)
@@ -117,9 +117,13 @@ func UpdateSensors(name string, sensors []Sensor) error {
 	}
 	defer db.Close()
 	var oldDev Device
-	db.First(&oldDev, "Name= ?", name)
+	res := db.First(&oldDev, "Name= ?", name)
+	if res.Error != nil {
+		log.WithFields(logFields).Error(res.Error)
+		return err
+	}
 	oldDev.Sensors = sensors
-	res := db.Save(&oldDev)
+	res = db.Save(&oldDev)
 	if res.Error != nil {
 		log.WithFields(logFields).Error(res.Error)
 		return res.Error
@@ -131,41 +135,64 @@ func UpdateSensors(name string, sensors []Sensor) error {
 	return nil
 }
 
-func Test() error {
-	initialMigration()
-
-	for i := 0; i < 10; i++ {
-		devDesc := DeviceDesc{
-			Name:    fmt.Sprintf("BaselTest%d", i),
-			Sensors: []string{"dht", "mhz", "bme"},
-		}
-		if !hasDevice(devDesc.Name) {
-			saveDefaultDeviceConfig(devDesc)
-		}
-	}
-
-	/*saveDefaultDeviceConfig(DeviceDesc{
-		Name:    "BaselTest1",
-		Sensors: []string{"dht", "mhz", "bme"},
-	})*/
-
-	dev, err := getDeviceConfig("BaselTest0")
+func ConfigureDevice(name string, interval float32, buffer int) error {
+	logFields := log.Fields{"fnct": "ConfigureDevice"}
+	log.WithFields(logFields).Infof("Configure device %s with interval/buffer: %v/%v ",
+		name, interval, buffer)
+	db, err := gorm.Open("sqlite3", DeviceDatabaseName)
 	if err != nil {
+		log.WithFields(logFields).Error(err)
 		return err
 	}
-
-	var sensors []Sensor
-	for _, sensor := range dev.Sensors {
-		s := sensor
-		if sensor.SensorName == "bme" {
-			s.Offset = -2.0
-			s.AquisitionInterval = time.Second * 100
-			fmt.Printf("Change Offset of %+v\n", sensor.SensorName)
-		}
-		sensors = append(sensors, s)
+	defer db.Close()
+	var devToUpdate Device
+	res := db.First(&devToUpdate, "Name= ?", name)
+	if res.Error != nil {
+		log.WithFields(logFields).Error(res.Error)
+		return err
+	}
+	devToUpdate.Interval = interval
+	devToUpdate.Buffer = buffer
+	res = db.Save(&devToUpdate)
+	if res.Error != nil {
+		log.WithFields(logFields).Error(res.Error)
+		return res.Error
+	}
+	if res.RowsAffected <= 0 {
+		log.WithFields(logFields).Error("not updated")
+		return fmt.Errorf("not updated")
 	}
 
-	UpdateSensors("BaselTest0", sensors)
+	log.WithFields(logFields).Infof("Succefully updated device %v", name)
+	return nil
+}
 
+func ConfigureSensor(name string, offset float32) error {
+	logFields := log.Fields{"fnct": "ConfigureSensor"}
+	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ", name, offset)
+	db, err := gorm.Open("sqlite3", DeviceDatabaseName)
+	if err != nil {
+		log.WithFields(logFields).Error(err)
+		return err
+	}
+	defer db.Close()
+	var sensorToUpdate Sensor
+	res := db.First(&sensorToUpdate, "Name= ?", name)
+	if res.Error != nil {
+
+		log.WithFields(logFields).Errorf("Failed to get sensor %s: %v", name, res.Error)
+		return res.Error
+	}
+	sensorToUpdate.Offset = offset
+	res = db.Save(&sensorToUpdate)
+	if res.Error != nil {
+		log.WithFields(logFields).Error(res.Error)
+		return res.Error
+	}
+	if res.RowsAffected <= 0 {
+		log.WithFields(logFields).Error("not updated")
+		return fmt.Errorf("not updated")
+	}
+	log.WithFields(logFields).Infof("Succefully updated sensor %v", name)
 	return nil
 }

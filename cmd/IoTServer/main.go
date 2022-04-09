@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 
 	iotedge "github.com/pat-rohn/go-iotedge"
 	startup "github.com/pat-rohn/go-startup"
@@ -53,13 +54,38 @@ func main() {
 		},
 	}
 
-	var TestCmd = &cobra.Command{
-		Use:   "test",
-		Args:  cobra.MinimumNArgs(0),
+	var ConfigureDeviceCmd = &cobra.Command{
+		Use:   "conf-device devicename interval buffer",
+		Args:  cobra.MinimumNArgs(3),
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := iotedge.Test(); err != nil {
+			interval, err := strconv.ParseFloat(args[1], 32)
+			if err != nil {
+				return err
+			}
+			buffer, err := strconv.ParseInt(args[2], 10, 32)
+			if err != nil {
+				return err
+			}
+			if err = iotedge.ConfigureDevice(args[0], float32(interval), int(buffer)); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+
+	var ConfigureSensorCmd = &cobra.Command{
+		Use:   "conf-sensor sensorname offset",
+		Args:  cobra.MinimumNArgs(2),
+		Short: "",
+		Long:  `e.g IoTServer conf-sensor -v i Basel3Humidity -- -2 `,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			offset, err := strconv.ParseFloat(args[1], 32)
+			if err != nil {
+				return err
+			}
+			if err = iotedge.ConfigureSensor(args[0], float32(offset)); err != nil {
 				return err
 			}
 			return nil
@@ -69,7 +95,8 @@ func main() {
 
 	rootCmd.AddCommand(startServerCmd)
 	rootCmd.AddCommand(createTableCmd)
-	rootCmd.AddCommand(TestCmd)
+	rootCmd.AddCommand(ConfigureDeviceCmd)
+	rootCmd.AddCommand(ConfigureSensorCmd)
 
 	cobra.OnInitialize(initGlobalFlags)
 	rootCmd.Execute()

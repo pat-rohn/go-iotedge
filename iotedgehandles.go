@@ -20,7 +20,7 @@ func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		log.Info("Received data.%+v", data)
+		log.Infof("Received data.%+v", data)
 		log.Trace("%+v", data)
 
 		//dbh := timeseries.New(s.DatabaseConfig)
@@ -42,7 +42,10 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
 
 		d := json.NewDecoder(r.Body)
-		var p DeviceDesc
+		type DeviceReq struct {
+			DeviceDesc DeviceDesc `json:"Device"`
+		}
+		var p DeviceReq
 		err := d.Decode(&p)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
@@ -51,11 +54,34 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
+		if hasDevice(p.DeviceDesc.Name) {
+			dev, err := getDevice(p.DeviceDesc.Name)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
+				log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Content-Type", "application/json")
 
-		var deviceConfig Device
-		json.NewEncoder(w).Encode(deviceConfig)
+			log.WithFields(logFields).Infof("device: %+v ", dev)
+			json.NewEncoder(w).Encode(dev)
+			return
+
+		} else {
+			dev, err := createDefaultDevice(p.DeviceDesc)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
+				log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Content-Type", "application/json")
+
+			log.WithFields(logFields).Infof("device: %+v ", dev)
+			json.NewEncoder(w).Encode(dev)
+			return
+		}
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		log.WithFields(logFields).Errorln("Only Post is allowed.")

@@ -21,7 +21,7 @@ func New(dbConfig timeseries.DBConfig, port int) IoTEdge {
 
 func (s *IoTEdge) StartSensorServer() error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
-
+	initialMigration()
 	http.HandleFunc(URIInitDevice, s.InitDevice)
 	http.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
 	http.HandleFunc(URIUploadData, s.UploadDataHandler)
@@ -46,7 +46,7 @@ func (s *IoTEdge) WriteToDatabase(data []timeseries.TimeseriesImportStruct) {
 		log.Error("failed to create DB: %v", err)
 	}
 	for _, ts := range data {
-		log.Info("insert %v", ts.Tag)
+		log.Infof("insert %v", ts.Tag)
 		if err := db.InsertTimeseries(ts, true); err != nil {
 			log.Errorf("failed to insert TS: %v", err)
 		}
@@ -54,6 +54,7 @@ func (s *IoTEdge) WriteToDatabase(data []timeseries.TimeseriesImportStruct) {
 }
 
 func GetConfig() IoTEdge {
+	logFields := log.Fields{"fnct": "GetConfig"}
 	viper.SetDefault("DbConfig.Name", "plottydb")
 	viper.SetDefault("DbConfig.IPOrPath", "localhost")
 	viper.SetDefault("DbConfig.UsePostgres", true)
@@ -72,6 +73,7 @@ func GetConfig() IoTEdge {
 	pathToConfig := dirname + "/.iotserver"
 	viper.AddConfigPath(pathToConfig)
 	viper.AddConfigPath(".")
+	log.WithFields(logFields).Infoln("Read Config")
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			log.Warnf(fmt.Sprintf("no config file found: %v", err))
@@ -86,11 +88,20 @@ func GetConfig() IoTEdge {
 			log.Fatal(fmt.Sprintf("Loading config failed: %v", err))
 		}
 	}
-	var iotConfig IoTEdge
+	type config struct {
+		Port     int
+		DbConfig timeseries.DBConfig
+	}
+
+	var iotConfig config
+
 	err = viper.Unmarshal(&iotConfig)
 	if err != nil {
 		panic(fmt.Errorf("fatal error config file: %w ", err))
 	}
-	fmt.Printf("%+v", iotConfig)
-	return iotConfig
+	log.Infof("Config %+v", iotConfig)
+	return IoTEdge{
+		Port:           iotConfig.Port,
+		DatabaseConfig: iotConfig.DbConfig,
+	}
 }

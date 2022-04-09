@@ -1,15 +1,13 @@
 package iotedge
 
 import (
-	"time"
-
 	"github.com/jinzhu/gorm"
 	timeseries "github.com/pat-rohn/timeseries"
 )
 
 type IoTEdge struct {
 	Port           int
-	DatabaseConfig timeseries.DBConfig
+	DatabaseConfig timeseries.DBConfig `json:"DbConfig"`
 }
 
 const (
@@ -48,14 +46,15 @@ type DeviceDesc struct {
 
 type Device struct {
 	gorm.Model
-	Name    string   `gorm:"unique"`
-	Sensors []Sensor `gorm:"foreignKey:DeviceID;references:SensorID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Name     string   `gorm:"unique"`
+	Sensors  []Sensor `gorm:"foreignKey:DeviceID;references:SensorID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Interval float32
+	Buffer   int
 }
 
 type Sensor struct {
 	gorm.Model
-	SensorName         string
-	Offset             float64
-	AquisitionInterval time.Duration
-	DeviceID           uint
+	Name     string
+	Offset   float32
+	DeviceID uint
 }
