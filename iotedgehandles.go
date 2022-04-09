@@ -32,6 +32,36 @@ func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
+
+	logFields := log.Fields{"fnct": "InitDevice"}
+	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
+
+	switch r.Method {
+	case "POST":
+		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
+
+		d := json.NewDecoder(r.Body)
+		var p DeviceDesc
+		err := d.Decode(&p)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
+			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
+			return
+		}
+		log.WithFields(logFields).Infof("Value: %+v ", p)
+
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		var deviceConfig Device
+		json.NewEncoder(w).Encode(deviceConfig)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		log.WithFields(logFields).Errorln("Only Post is allowed.")
+	}
+}
+
 func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 
 	logFields := log.Fields{"fnct": "UpdateSensorHandler"}
@@ -134,4 +164,15 @@ func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		log.WithFields(logFields).Errorln("Only Post is allowed.")
 	}
+}
+
+func (s *IoTEdge) witeToDB(sqlStr string) error {
+	logFields := log.Fields{"fnct": "witeToDB"}
+	dbConfig := GetConfig()
+	dbh := timeseries.New(dbConfig.DatabaseConfig)
+	if err := dbh.CreateDatabase(); err != nil {
+		log.WithFields(logFields).Fatalf(
+			"Failed to create database: %v", err)
+	}
+	return dbh.WriteToDB(sqlStr)
 }
