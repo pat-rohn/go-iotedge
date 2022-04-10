@@ -40,16 +40,18 @@ type sensorValues struct {
 }
 
 type DeviceDesc struct {
-	Name    string
-	Sensors []string
+	Name        string
+	Sensors     []string
+	Description string
 }
 
 type Device struct {
 	gorm.Model
-	Name     string   `gorm:"unique"`
-	Sensors  []Sensor `gorm:"foreignKey:DeviceID;references:SensorID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-	Interval float32
-	Buffer   int
+	Name        string   `gorm:"unique"`
+	Sensors     []Sensor `gorm:"foreignKey:DeviceID;references:SensorID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Interval    float32
+	Buffer      int
+	Description string
 }
 
 type Sensor struct {

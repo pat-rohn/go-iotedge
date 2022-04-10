@@ -47,10 +47,11 @@ func createDefaultDevice(deviceDesc DeviceDesc) (Device, error) {
 		sensorSettings = append(sensorSettings, sensorSetting)
 	}
 	dev := Device{
-		Name:     deviceDesc.Name,
-		Sensors:  sensorSettings,
-		Interval: 60.0,
-		Buffer:   3,
+		Name:        deviceDesc.Name,
+		Sensors:     sensorSettings,
+		Interval:    60.0,
+		Buffer:      3,
+		Description: deviceDesc.Description,
 	}
 
 	result := db.Create(&dev)
