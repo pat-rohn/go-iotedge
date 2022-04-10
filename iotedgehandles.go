@@ -191,14 +191,3 @@ func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
 		log.WithFields(logFields).Errorln("Only Post is allowed.")
 	}
 }
-
-func (s *IoTEdge) witeToDB(sqlStr string) error {
-	logFields := log.Fields{"fnct": "witeToDB"}
-	dbConfig := GetConfig()
-	dbh := timeseries.New(dbConfig.DatabaseConfig)
-	if err := dbh.CreateDatabase(); err != nil {
-		log.WithFields(logFields).Fatalf(
-			"Failed to create database: %v", err)
-	}
-	return dbh.WriteToDB(sqlStr)
-}
