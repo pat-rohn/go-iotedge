@@ -111,7 +111,7 @@ func createTable() error {
 		log.Error("failed to create DB: %v", err)
 		return err
 	}
-	if err := db.CreateTimeseriesTable(iotConfig.DatabaseConfig.TableName); err != nil {
+	if err := db.CreateTimeseriesTable(); err != nil {
 		log.Error("failed to create DB: %v", err)
 		return err
 	}
