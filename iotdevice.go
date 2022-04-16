@@ -3,7 +3,7 @@ package iotedge
 import (
 	"fmt"
 
-	timeseries "github.com/pat-rohn/timeseries"
+	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -16,7 +16,7 @@ type IoTDevice struct {
 }
 
 func InitializeDB() error {
-	logFields := log.Fields{"fnct": "initialMigration"}
+	logFields := log.Fields{"fnct": "InitializeDB"}
 	log.WithFields(logFields).Infoln("GORM init")
 	db, err := getORMConn(GetConfig().DatabaseConfig)
 	if err != nil {
@@ -34,36 +34,9 @@ func InitializeDB() error {
 	return nil
 }
 
-func getORMConn(conf timeseries.DBConfig) (db *gorm.DB, err error) {
-
-	if conf.UsePostgres {
-		dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s port=%v sslmode=disable TimeZone=Europe/Zurich",
-			conf.User, conf.Password, conf.Name, conf.Port,
-		)
-
-		//dsn := "host=localhost user=gorm password=gorm dbname=gorm port=9920 sslmode=disable TimeZone=Asia/Shanghai"
-		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		if err != nil {
-			fmt.Println(err.Error())
-			return nil, err
-		}
-		return db, nil
-
-	}
-
-	database, err := gorm.Open(sqlite.Open(DeviceDatabaseName), &gorm.Config{})
-	if err != nil {
-		fmt.Println(err.Error())
-		return nil, err
-	}
-
-	return database, nil
-
-}
-
 func Init(deviceDesc DeviceDesc) (IoTDevice, error) {
 	logFields := log.Fields{"fnct": "Init"}
-	log.WithFields(logFields).Infoln("Check if has device")
+	log.WithFields(logFields).Infof("Init %s.", deviceDesc.Name)
 	if hasDevice(deviceDesc.Name) {
 		// todo: update
 		log.WithFields(logFields).Infoln("Device exists already.")
@@ -96,7 +69,7 @@ func Init(deviceDesc DeviceDesc) (IoTDevice, error) {
 		return IoTDevice{}, err
 	}
 
-	result := db.Create(&dev)
+	result := db.Create(&dev.Device)
 	if err = result.Error; err != nil || result.RowsAffected <= 0 {
 		log.WithFields(logFields).Errorf("Failed to save device %v", err)
 		return IoTDevice{}, err
@@ -129,31 +102,8 @@ func GetDevice(deviceName string) (IoTDevice, error) {
 		}, nil
 	}
 
-	log.WithFields(logFields).Error("No device Found device %+v", dev)
+	log.WithFields(logFields).Error("No device found %+v", dev)
 	return IoTDevice{}, err
-}
-
-func hasDevice(name string) bool {
-	logFields := log.Fields{"fnct": "hasDevice"}
-	log.WithFields(logFields).Infof("Check for %s", name)
-	config := GetConfig()
-	db, err := getORMConn(config.DatabaseConfig)
-	if err != nil {
-		return false
-	}
-
-	var dev Device
-	res := db.First(&dev, "Name = ?", name)
-	if res.Error != nil {
-		log.WithFields(logFields).Infof("failed to find device: %v", res.Error)
-		return false
-	}
-	if res.RowsAffected > 0 {
-		log.WithFields(logFields).Infof("Found device %s", dev.Name)
-		return true
-	}
-	log.WithFields(logFields).Infof("No device with name %s", dev.Name)
-	return false
 }
 
 func (d *IoTDevice) UpdateSensors(sensors []Sensor) error {
@@ -243,4 +193,53 @@ func (d *IoTDevice) ConfigureSensor(offset float32) error {
 	}
 	log.WithFields(logFields).Infof("Succefully updated sensor %v", d.Device.Name)
 	return nil
+}
+
+func hasDevice(name string) bool {
+	logFields := log.Fields{"fnct": "hasDevice"}
+	log.WithFields(logFields).Infof("Check for %s", name)
+	config := GetConfig()
+	db, err := getORMConn(config.DatabaseConfig)
+	if err != nil {
+		return false
+	}
+
+	var dev Device
+	res := db.First(&dev, "Name = ?", name)
+	if res.Error != nil {
+		log.WithFields(logFields).Infof("failed to find device: %v", res.Error)
+		return false
+	}
+	if res.RowsAffected > 0 {
+		log.WithFields(logFields).Infof("Found device %s", dev.Name)
+		return true
+	}
+	log.WithFields(logFields).Infof("No device with name %s", dev.Name)
+	return false
+}
+func getORMConn(conf timeseries.DBConfig) (db *gorm.DB, err error) {
+
+	if conf.UsePostgres {
+		dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s port=%v sslmode=disable TimeZone=Europe/Zurich",
+			conf.User, conf.Password, conf.Name, conf.Port,
+		)
+
+		//dsn := "host=localhost user=gorm password=gorm dbname=gorm port=9920 sslmode=disable TimeZone=Asia/Shanghai"
+		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err != nil {
+			fmt.Println(err.Error())
+			return nil, err
+		}
+		return db, nil
+
+	}
+
+	database, err := gorm.Open(sqlite.Open(DeviceDatabaseName), &gorm.Config{})
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil, err
+	}
+
+	return database, nil
+
 }

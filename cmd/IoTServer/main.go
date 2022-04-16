@@ -99,12 +99,34 @@ func main() {
 			return nil
 		},
 	}
+
+	var DummyCmd = &cobra.Command{
+		Use:   "dummy [URL]",
+		Args:  cobra.MinimumNArgs(1),
+		Short: "",
+		Long:  `e.g IoTServer dummy http://192.168.1.120:3004`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+
+			dummy := iotedge.DummyDevice{
+				Url: args[0],
+				DeviceDesc: iotedge.DeviceDesc{
+					Name:        "Dummy",
+					Description: "Dummy1.0;DummyTemp",
+					Sensors:     []string{"Temperature"},
+				},
+			}
+
+			dummy.Simulate()
+			return nil
+		},
+	}
 	rootCmd.PersistentFlags().StringVarP(&loglevel, "verbose", "v", "w", "verbosity")
 
 	rootCmd.AddCommand(startServerCmd)
 	rootCmd.AddCommand(createTableCmd)
 	rootCmd.AddCommand(ConfigureDeviceCmd)
 	rootCmd.AddCommand(ConfigureSensorCmd)
+	rootCmd.AddCommand(DummyCmd)
 
 	cobra.OnInitialize(initGlobalFlags)
 	rootCmd.Execute()
