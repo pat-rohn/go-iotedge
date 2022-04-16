@@ -54,34 +54,19 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		if hasDevice(p.DeviceDesc.Name) {
-			dev, err := getDevice(p.DeviceDesc.Name)
-			if err != nil {
-				http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
-				log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
-				return
-			}
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Content-Type", "application/json")
-
-			log.WithFields(logFields).Infof("device: %+v ", dev)
-			json.NewEncoder(w).Encode(dev)
-			return
-
-		} else {
-			dev, err := createDefaultDevice(p.DeviceDesc)
-			if err != nil {
-				http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
-				log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
-				return
-			}
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Content-Type", "application/json")
-
-			log.WithFields(logFields).Infof("device: %+v ", dev)
-			json.NewEncoder(w).Encode(dev)
+		dev, err := Init(p.DeviceDesc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
+			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
 			return
 		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		log.WithFields(logFields).Infof("device: %+v ", dev)
+		json.NewEncoder(w).Encode(dev.Device)
+		return
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		log.WithFields(logFields).Errorln("Only Post is allowed.")

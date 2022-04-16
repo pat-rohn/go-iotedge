@@ -68,7 +68,11 @@ func main() {
 			if err != nil {
 				return err
 			}
-			if err = iotedge.ConfigureDevice(args[0], float32(interval), int(buffer)); err != nil {
+			iotDevice, err := iotedge.GetDevice(args[0])
+			if err != nil {
+				return err
+			}
+			if err = iotDevice.Configure(float32(interval), int(buffer)); err != nil {
 				return err
 			}
 			return nil
@@ -85,7 +89,11 @@ func main() {
 			if err != nil {
 				return err
 			}
-			if err = iotedge.ConfigureSensor(args[0], float32(offset)); err != nil {
+			iotDevice, err := iotedge.GetDevice(args[0])
+			if err != nil {
+				return err
+			}
+			if err = iotDevice.ConfigureSensor(float32(offset)); err != nil {
 				return err
 			}
 			return nil

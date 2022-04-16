@@ -3,17 +3,22 @@ package iotedge
 import (
 	"fmt"
 
+	timeseries "github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-func initialMigration() error {
+type IoTDevice struct {
+	DatabaseConfig timeseries.DBConfig
+	Device         Device
+}
+
+func InitializeDB() error {
 	logFields := log.Fields{"fnct": "initialMigration"}
-	log.WithFields(logFields).Infoln("Test")
-	// Migrate the schema
-	db, err := getORMConn()
+	log.WithFields(logFields).Infoln("GORM init")
+	db, err := getORMConn(GetConfig().DatabaseConfig)
 	if err != nil {
 		return err
 	}
@@ -29,17 +34,13 @@ func initialMigration() error {
 	return nil
 }
 
-func getORMConn() (db *gorm.DB, err error) {
+func getORMConn(conf timeseries.DBConfig) (db *gorm.DB, err error) {
 
-	conf := GetConfig()
-	if conf.DatabaseConfig.UsePostgres {
+	if conf.UsePostgres {
 		dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s port=%v sslmode=disable TimeZone=Europe/Zurich",
-			conf.DatabaseConfig.User,
-			conf.DatabaseConfig.Password,
-			conf.DatabaseConfig.Name,
-			conf.DatabaseConfig.Port,
+			conf.User, conf.Password, conf.Name, conf.Port,
 		)
-		fmt.Println(dsn)
+
 		//dsn := "host=localhost user=gorm password=gorm dbname=gorm port=9920 sslmode=disable TimeZone=Asia/Shanghai"
 		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err != nil {
@@ -60,72 +61,89 @@ func getORMConn() (db *gorm.DB, err error) {
 
 }
 
-func createDefaultDevice(deviceDesc DeviceDesc) (Device, error) {
-	logFields := log.Fields{"fnct": "saveDefaultDeviceConfig"}
-	log.WithFields(logFields).Infoln("Test")
-	db, err := getORMConn()
-	if err != nil {
-		return Device{}, err
+func Init(deviceDesc DeviceDesc) (IoTDevice, error) {
+	logFields := log.Fields{"fnct": "Init"}
+	log.WithFields(logFields).Infoln("Check if has device")
+	if hasDevice(deviceDesc.Name) {
+		// todo: update
+		log.WithFields(logFields).Infoln("Device exists already.")
+		return GetDevice(deviceDesc.Name)
 	}
-	var sensorSettings []Sensor
+
+	var sensors []Sensor
 	for _, sensor := range deviceDesc.Sensors {
-		sensorSetting := Sensor{
+		sensor := Sensor{
 			Name:   sensor,
 			Offset: 0.0,
 		}
-		sensorSettings = append(sensorSettings, sensorSetting)
+		sensors = append(sensors, sensor)
 	}
-	dev := Device{
-		Name:        deviceDesc.Name,
-		Sensors:     sensorSettings,
-		Interval:    60.0,
-		Buffer:      3,
-		Description: deviceDesc.Description,
+
+	dev := IoTDevice{
+		Device: Device{
+			Name:        deviceDesc.Name,
+			Sensors:     sensors,
+			Interval:    60.0,
+			Buffer:      3,
+			Description: deviceDesc.Description,
+		},
+		DatabaseConfig: GetConfig().DatabaseConfig,
+	}
+
+	db, err := getORMConn(dev.DatabaseConfig)
+	if err != nil {
+		log.WithFields(logFields).Error(err)
+		return IoTDevice{}, err
 	}
 
 	result := db.Create(&dev)
 	if err = result.Error; err != nil || result.RowsAffected <= 0 {
 		log.WithFields(logFields).Errorf("Failed to save device %v", err)
-		return Device{}, err
+		return IoTDevice{}, err
 	}
 
 	return dev, err
 }
 
-func getDevice(deviceName string) (Device, error) {
-	logFields := log.Fields{"fnct": "getDeviceConfig"}
-	log.WithFields(logFields).Infoln("Test")
-	db, err := getORMConn()
+func GetDevice(deviceName string) (IoTDevice, error) {
+	logFields := log.Fields{"fnct": "GetDevice"}
+	log.WithFields(logFields).Infof("%s", deviceName)
+	config := GetConfig()
+	db, err := getORMConn(config.DatabaseConfig)
 	if err != nil {
 		log.WithFields(logFields).Error(err)
-		return Device{}, err
+		return IoTDevice{}, err
 	}
 
 	var dev Device
 	result := db.Preload("Sensors").First(&dev, "Name = ?", deviceName)
 	if err = result.Error; err != nil {
 		log.WithFields(logFields).Error(err)
-		return Device{}, err
+		return IoTDevice{}, err
 	}
 	if result.RowsAffected > 0 {
 		log.WithFields(logFields).Infof("Found device %s", dev.Name)
-		return dev, nil
+		return IoTDevice{
+			Device:         dev,
+			DatabaseConfig: config.DatabaseConfig,
+		}, nil
 	}
 
 	log.WithFields(logFields).Error("No device Found device %+v", dev)
-	return Device{}, err
+	return IoTDevice{}, err
 }
 
-func hasDevice(deviceName string) bool {
+func hasDevice(name string) bool {
 	logFields := log.Fields{"fnct": "hasDevice"}
-	log.WithFields(logFields).Infof("Check for %s", deviceName)
-	db, err := getORMConn()
+	log.WithFields(logFields).Infof("Check for %s", name)
+	config := GetConfig()
+	db, err := getORMConn(config.DatabaseConfig)
 	if err != nil {
 		return false
 	}
 
 	var dev Device
-	res := db.First(&dev, "Name = ?", deviceName)
+	res := db.First(&dev, "Name = ?", name)
 	if res.Error != nil {
 		log.WithFields(logFields).Infof("failed to find device: %v", res.Error)
 		return false
@@ -138,16 +156,16 @@ func hasDevice(deviceName string) bool {
 	return false
 }
 
-func UpdateSensors(name string, sensors []Sensor) error {
-	logFields := log.Fields{"fnct": "UpdateDevice"}
-	log.WithFields(logFields).Infoln("Test")
-	db, err := getORMConn()
+func (d *IoTDevice) UpdateSensors(sensors []Sensor) error {
+	logFields := log.Fields{"fnct": "UpdateSensors"}
+	log.WithFields(logFields).Infoln("Update")
+	db, err := getORMConn(d.DatabaseConfig)
 	if err != nil {
 		return err
 	}
 
 	var oldDev Device
-	res := db.First(&oldDev, "Name= ?", name)
+	res := db.First(&oldDev, "Name= ?", d.Device.Name)
 	if res.Error != nil {
 		log.WithFields(logFields).Error(res.Error)
 		return err
@@ -165,17 +183,17 @@ func UpdateSensors(name string, sensors []Sensor) error {
 	return nil
 }
 
-func ConfigureDevice(name string, interval float32, buffer int) error {
+func (d *IoTDevice) Configure(interval float32, buffer int) error {
 	logFields := log.Fields{"fnct": "ConfigureDevice"}
 	log.WithFields(logFields).Infof("Configure device %s with interval/buffer: %v/%v ",
-		name, interval, buffer)
-	db, err := getORMConn()
+		d.Device.Name, interval, buffer)
+	db, err := getORMConn(d.DatabaseConfig)
 	if err != nil {
 		log.WithFields(logFields).Error(err)
 		return err
 	}
 	var devToUpdate Device
-	res := db.First(&devToUpdate, "Name= ?", name)
+	res := db.First(&devToUpdate, "Name= ?", d.Device.Name)
 	if res.Error != nil {
 		log.WithFields(logFields).Error(res.Error)
 		return err
@@ -192,24 +210,25 @@ func ConfigureDevice(name string, interval float32, buffer int) error {
 		return fmt.Errorf("not updated")
 	}
 
-	log.WithFields(logFields).Infof("Succefully updated device %v", name)
+	log.WithFields(logFields).Infof("Succefully updated device %v", d.Device.Name)
 	return nil
 }
 
-func ConfigureSensor(name string, offset float32) error {
+func (d *IoTDevice) ConfigureSensor(offset float32) error {
 	logFields := log.Fields{"fnct": "ConfigureSensor"}
-	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ", name, offset)
+	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ",
+		d.Device.Name, offset)
 
-	db, err := getORMConn()
+	db, err := getORMConn(d.DatabaseConfig)
 	if err != nil {
 		log.WithFields(logFields).Error(err)
 		return err
 	}
 	var sensorToUpdate Sensor
-	res := db.First(&sensorToUpdate, "Name= ?", name)
+	res := db.First(&sensorToUpdate, "Name= ?", d.Device.Name)
 	if res.Error != nil {
 
-		log.WithFields(logFields).Errorf("Failed to get sensor %s: %v", name, res.Error)
+		log.WithFields(logFields).Errorf("Failed to get sensor %s: %v", d.Device.Name, res.Error)
 		return res.Error
 	}
 	sensorToUpdate.Offset = offset
@@ -222,6 +241,6 @@ func ConfigureSensor(name string, offset float32) error {
 		log.WithFields(logFields).Error("not updated")
 		return fmt.Errorf("not updated")
 	}
-	log.WithFields(logFields).Infof("Succefully updated sensor %v", name)
+	log.WithFields(logFields).Infof("Succefully updated sensor %v", d.Device.Name)
 	return nil
 }

@@ -21,7 +21,7 @@ func New(dbConfig timeseries.DBConfig, port int) IoTEdge {
 
 func (s *IoTEdge) StartSensorServer() error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
-	initialMigration()
+	InitializeDB()
 	http.HandleFunc(URIInitDevice, s.InitDevice)
 	http.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
 	http.HandleFunc(URIUploadData, s.UploadDataHandler)
@@ -99,7 +99,7 @@ func GetConfig() IoTEdge {
 	if err != nil {
 		panic(fmt.Errorf("fatal error config file: %w ", err))
 	}
-	log.Infof("Config %+v", iotConfig)
+	log.Tracef("Config %+v", iotConfig)
 	return IoTEdge{
 		Port:           iotConfig.Port,
 		DatabaseConfig: iotConfig.DbConfig,
