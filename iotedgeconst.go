@@ -16,7 +16,6 @@ const (
 	URIUpdateSensor    string = "/update-sensor"
 	URIUploadData      string = "/upload-data"
 	URISaveTimeseries  string = "/timeseries/save"
-	DeviceDatabaseName string = "devices.db"
 )
 
 type Output struct {

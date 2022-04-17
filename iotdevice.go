@@ -38,9 +38,44 @@ func Init(deviceDesc DeviceDesc) (IoTDevice, error) {
 	logFields := log.Fields{"fnct": "Init"}
 	log.WithFields(logFields).Infof("Init %s.", deviceDesc.Name)
 	if hasDevice(deviceDesc.Name) {
-		// todo: update
+
 		log.WithFields(logFields).Infoln("Device exists already.")
-		return GetDevice(deviceDesc.Name)
+		hasUpdate := false
+		dev, err := GetDevice(deviceDesc.Name)
+		if err != nil {
+			return IoTDevice{}, err
+		}
+		if dev.Device.Description != deviceDesc.Description {
+			log.WithFields(logFields).Infof("New Description: %s", deviceDesc.Description)
+			dev.Device.Description = deviceDesc.Description
+			hasUpdate = true
+
+		}
+		for _, s := range deviceDesc.Sensors {
+			if !dev.hasSensor(s) {
+				hasUpdate = true
+				log.WithFields(logFields).Infof("New sensor found: %s", s)
+				dev.Device.Sensors = append(dev.Device.Sensors, Sensor{
+					Name:   s,
+					Offset: 0.0,
+				})
+			}
+		}
+		if hasUpdate {
+
+			db, err := getORMConn(dev.DatabaseConfig)
+			if err != nil {
+				log.WithFields(logFields).Error(err)
+				return IoTDevice{}, err
+			}
+
+			result := db.Save(&dev.Device)
+			if err = result.Error; err != nil || result.RowsAffected <= 0 {
+				log.WithFields(logFields).Errorf("Failed to save device %v", err)
+				return IoTDevice{}, err
+			}
+		}
+		return dev, nil
 	}
 
 	var sensors []Sensor
@@ -104,33 +139,6 @@ func GetDevice(deviceName string) (IoTDevice, error) {
 
 	log.WithFields(logFields).Errorf("No device found %+v", dev)
 	return IoTDevice{}, err
-}
-
-func (d *IoTDevice) UpdateSensors(sensors []Sensor) error {
-	logFields := log.Fields{"fnct": "UpdateSensors"}
-	log.WithFields(logFields).Infoln("Update")
-	db, err := getORMConn(d.DatabaseConfig)
-	if err != nil {
-		return err
-	}
-
-	var oldDev Device
-	res := db.First(&oldDev, "Name= ?", d.Device.Name)
-	if res.Error != nil {
-		log.WithFields(logFields).Error(res.Error)
-		return err
-	}
-	oldDev.Sensors = sensors
-	res = db.Save(&oldDev)
-	if res.Error != nil {
-		log.WithFields(logFields).Error(res.Error)
-		return res.Error
-	}
-	if res.RowsAffected <= 0 {
-		log.WithFields(logFields).Error("not updated")
-		return fmt.Errorf("not updated")
-	}
-	return nil
 }
 
 func (d *IoTDevice) Configure(interval float32, buffer int) error {
@@ -217,6 +225,29 @@ func hasDevice(name string) bool {
 	log.WithFields(logFields).Infof("No device with name %s", dev.Name)
 	return false
 }
+
+func (d *IoTDevice) hasSensor(name string) bool {
+	logFields := log.Fields{"fnct": "hasSensor"}
+	log.WithFields(logFields).Infof("Check for %s", name)
+	db, err := getORMConn(d.DatabaseConfig)
+	if err != nil {
+		return false
+	}
+
+	var sensor Sensor
+	res := db.First(&sensor, "Name = ?", name)
+	if res.Error != nil {
+		log.WithFields(logFields).Infof("failed to find sensor: %v", res.Error)
+		return false
+	}
+	if res.RowsAffected > 0 {
+		log.WithFields(logFields).Infof("Found sensor %s", sensor.Name)
+		return true
+	}
+	log.WithFields(logFields).Infof("No sensor with name %s", sensor.Name)
+	return false
+}
+
 func getORMConn(conf timeseries.DBConfig) (db *gorm.DB, err error) {
 
 	if conf.UsePostgres {
@@ -234,7 +265,7 @@ func getORMConn(conf timeseries.DBConfig) (db *gorm.DB, err error) {
 
 	}
 
-	database, err := gorm.Open(sqlite.Open(DeviceDatabaseName), &gorm.Config{})
+	database, err := gorm.Open(sqlite.Open("devices.db"), &gorm.Config{})
 	if err != nil {
 		fmt.Println(err.Error())
 		return nil, err
