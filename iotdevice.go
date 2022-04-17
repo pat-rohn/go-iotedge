@@ -102,7 +102,7 @@ func GetDevice(deviceName string) (IoTDevice, error) {
 		}, nil
 	}
 
-	log.WithFields(logFields).Error("No device found %+v", dev)
+	log.WithFields(logFields).Errorf("No device found %+v", dev)
 	return IoTDevice{}, err
 }
 

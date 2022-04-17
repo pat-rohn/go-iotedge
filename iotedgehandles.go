@@ -21,7 +21,7 @@ func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		log.Infof("Received data.%+v", data)
-		log.Trace("%+v", data)
+		log.Tracef("%+v", data)
 
 		//dbh := timeseries.New(s.DatabaseConfig)
 		go s.WriteToDatabase(data)

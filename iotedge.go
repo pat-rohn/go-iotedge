@@ -43,7 +43,7 @@ func (s *IoTEdge) WriteToDatabase(data []timeseries.TimeseriesImportStruct) {
 	db := timeseries.New(s.DatabaseConfig)
 	defer db.CloseDatabase()
 	if err := db.CreateDatabase(); err != nil {
-		log.Error("failed to create DB: %v", err)
+		log.Errorf("failed to create DB: %v", err)
 	}
 	for _, ts := range data {
 		log.Infof("insert %v", ts.Tag)
