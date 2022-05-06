@@ -172,7 +172,7 @@ func (d *IoTDevice) Configure(interval float32, buffer int) error {
 	return nil
 }
 
-func (d *IoTDevice) ConfigureSensor(offset float32) error {
+func (d *IoTDevice) ConfigureSensor(offset float32, sensorName string) error {
 	logFields := log.Fields{"fnct": "ConfigureSensor"}
 	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ",
 		d.Device.Name, offset)
@@ -183,10 +183,10 @@ func (d *IoTDevice) ConfigureSensor(offset float32) error {
 		return err
 	}
 	var sensorToUpdate Sensor
-	res := db.First(&sensorToUpdate, "Name= ?", d.Device.Name)
+	res := db.First(&sensorToUpdate, "Name= ?", sensorName)
 	if res.Error != nil {
 
-		log.WithFields(logFields).Errorf("Failed to get sensor %s: %v", d.Device.Name, res.Error)
+		log.WithFields(logFields).Errorf("Failed to get sensor %s: %v", sensorName, res.Error)
 		return res.Error
 	}
 	sensorToUpdate.Offset = offset

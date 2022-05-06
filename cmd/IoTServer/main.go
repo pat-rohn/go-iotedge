@@ -81,19 +81,21 @@ func main() {
 
 	var ConfigureSensorCmd = &cobra.Command{
 		Use:   "conf-sensor sensorname offset",
-		Args:  cobra.MinimumNArgs(2),
+		Args:  cobra.MinimumNArgs(3),
 		Short: "",
 		Long:  `e.g IoTServer conf-sensor -v i Basel3Humidity -- -2 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			offset, err := strconv.ParseFloat(args[1], 32)
+			offset, err := strconv.ParseFloat(args[2], 32)
 			if err != nil {
 				return err
 			}
+			sensor := args[1]
+
 			iotDevice, err := iotedge.GetDevice(args[0])
 			if err != nil {
 				return err
 			}
-			if err = iotDevice.ConfigureSensor(float32(offset)); err != nil {
+			if err = iotDevice.ConfigureSensor(float32(offset), sensor); err != nil {
 				return err
 			}
 			return nil
