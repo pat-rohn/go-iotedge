@@ -26,6 +26,8 @@ func (s *IoTEdge) StartSensorServer() error {
 	http.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
 	http.HandleFunc(URIUploadData, s.UploadDataHandler)
 	http.HandleFunc(URISaveTimeseries, s.SaveTimeseries)
+	http.HandleFunc(URISensorConfigure, s.ConfigureSensor)
+	http.HandleFunc(URIDeviceConfigure, s.ConfigureDevice)
 	port := s.Port
 
 	fmt.Printf("Listen on port: %v\n", port)
