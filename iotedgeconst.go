@@ -16,6 +16,8 @@ const (
 	URIUpdateSensor    string = "/update-sensor"
 	URIUploadData      string = "/upload-data"
 	URISaveTimeseries  string = "/timeseries/save"
+	URIDeviceConfigure string = "/device/configure"
+	URISensorConfigure string = "/sensor/configure"
 )
 
 type Output struct {
@@ -46,9 +48,8 @@ type DeviceDesc struct {
 
 type Sensor struct {
 	gorm.Model
-	Name   string
-	Offset float32
-	//Device   Device
+	Name     string
+	Offset   float32
 	DeviceID int
 }
 
@@ -59,4 +60,16 @@ type Device struct {
 	Interval    float32
 	Buffer      int
 	Description string
+}
+
+type ConfigureSensorReq struct {
+	Name       string
+	SensorName string
+	Offset     float32
+}
+
+type ConfigureDeviceReq struct {
+	Name     string
+	Interval float32
+	Buffer   int
 }

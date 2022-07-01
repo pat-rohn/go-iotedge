@@ -49,6 +49,19 @@ func TestMain(t *testing.T) {
 	dummy.DeviceDesc.Sensors = append(dummy.DeviceDesc.Sensors,
 		fmt.Sprintf("%sHumidity", name))
 	dummy.simulate(t)
+	configureDeviceReq := ConfigureDeviceReq{
+		Name:     dummy.DeviceDesc.Name,
+		Interval: 10,
+		Buffer:   1,
+	}
+	dummy.ConfigureDevice(t, configureDeviceReq)
+
+	configureSensorReq := ConfigureSensorReq{
+		Name:       dummy.DeviceDesc.Name,
+		SensorName: dummy.DeviceDesc.Sensors[0],
+		Offset:     -4.0,
+	}
+	dummy.configureSensor(t, configureSensorReq)
 }
 
 func (d *DummyDevice) simulate(t *testing.T) {
@@ -75,7 +88,7 @@ func (d *DummyDevice) simulate(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&res)
 
 	fmt.Println(res["json"])
-	for j := 0; j < 10; j++ {
+	for j := 0; j < 5; j++ {
 
 		var data []timeseries.TimeseriesImportStruct
 
@@ -101,6 +114,46 @@ func (d *DummyDevice) sendData(t *testing.T, data *[]timeseries.TimeseriesImport
 	}
 
 	resp, err := http.Post(d.Url+URISaveTimeseries, "application/json",
+		bytes.NewBuffer(jsonData))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var res map[string]interface{}
+
+	json.NewDecoder(resp.Body).Decode(&res)
+
+	fmt.Println(res["json"])
+}
+
+func (d *DummyDevice) ConfigureDevice(t *testing.T, configureDeviceReq ConfigureDeviceReq) {
+	jsonData, err := json.Marshal(configureDeviceReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Post(d.Url+URIDeviceConfigure, "application/json",
+		bytes.NewBuffer(jsonData))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var res map[string]interface{}
+
+	json.NewDecoder(resp.Body).Decode(&res)
+
+	fmt.Println(res["json"])
+}
+
+func (d *DummyDevice) configureSensor(t *testing.T, configureSensorReq ConfigureSensorReq) {
+	jsonData, err := json.Marshal(configureSensorReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Post(d.Url+URISensorConfigure, "application/json",
 		bytes.NewBuffer(jsonData))
 
 	if err != nil {
