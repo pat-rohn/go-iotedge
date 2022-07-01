@@ -6,7 +6,7 @@ import (
 	"os"
 
 	_ "github.com/mattn/go-sqlite3"
-	timeseries "github.com/pat-rohn/timeseries"
+	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )

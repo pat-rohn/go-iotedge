@@ -11,14 +11,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	logPkg string = "main"
-)
-
 var loglevel string
+var logPath string
 
 func initGlobalFlags() {
-	startup.SetLogLevel(fmt.Sprintf("-%s", loglevel), "iotserver.log")
+	startup.SetLogLevel(loglevel)
 }
 
 func main() {
@@ -34,6 +31,9 @@ func main() {
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(logPath) > 0 {
+				startup.SetLogPath(logPath)
+			}
 			if err := startServer(); err != nil {
 				return err
 			}
@@ -60,6 +60,9 @@ func main() {
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(logPath) > 0 {
+				startup.SetLogPath(logPath)
+			}
 			interval, err := strconv.ParseFloat(args[1], 32)
 			if err != nil {
 				return err
@@ -103,6 +106,7 @@ func main() {
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&loglevel, "verbose", "v", "w", "verbosity")
+	rootCmd.PersistentFlags().StringVarP(&logPath, "logfile", "l", "", "activate and create logfile")
 
 	rootCmd.AddCommand(startServerCmd)
 	rootCmd.AddCommand(createTableCmd)
