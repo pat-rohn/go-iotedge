@@ -11,17 +11,17 @@ import (
 	"github.com/spf13/viper"
 )
 
-func New(dbConfig timeseries.DBConfig, port int) IoTEdge {
-
-	return IoTEdge{
-		DatabaseConfig: dbConfig,
-		Port:           port,
-	}
-}
-
 func (s *IoTEdge) StartSensorServer() error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
-	InitializeDB()
+	if err := s.InitializeDB(); err != nil {
+		return err
+	}
+	tsHandler := timeseries.New(s.DatabaseConfig)
+	if err := tsHandler.CreateTimeseriesTable(); err != nil {
+		log.Errorf("failed to create table: %v", err)
+		return err
+	}
+	s.Timeseries = tsHandler
 	http.HandleFunc(URIInitDevice, s.InitDevice)
 	http.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
 	http.HandleFunc(URIUploadData, s.UploadDataHandler)
@@ -43,15 +43,17 @@ func (s *IoTEdge) StartSensorServer() error {
 
 func (s *IoTEdge) WriteToDatabase(data []timeseries.TimeseriesImportStruct) {
 	db := timeseries.New(s.DatabaseConfig)
-	defer db.CloseDatabase()
-	if err := db.CreateDatabase(); err != nil {
-		log.Errorf("failed to create DB: %v", err)
-	}
+
 	for _, ts := range data {
 		log.Infof("insert %v", ts.Tag)
+		s.tsMutex.Lock()
 		if err := db.InsertTimeseries(ts, true); err != nil {
-			log.Errorf("failed to insert TS: %v", err)
+			if err != nil {
+				log.Fatalf("failed to insert TS: %v", err)
+			}
+
 		}
+		s.tsMutex.Unlock()
 	}
 }
 

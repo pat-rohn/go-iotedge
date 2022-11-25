@@ -24,8 +24,11 @@ func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
 		log.Tracef("%+v", data)
 
 		//dbh := timeseries.New(s.DatabaseConfig)
-		go s.WriteToDatabase(data)
+		s.WriteToDatabase(data)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
 
+		json.NewEncoder(w).Encode(`{"success": true}`)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		log.Errorf("Cant do that.")
@@ -54,12 +57,15 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		dev, err := Init(p.DeviceDesc)
+		s.initLock.Lock()
+		dev, err := s.Init(p.DeviceDesc)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`init device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("init device failed: %+v ", err.Error())
+			s.initLock.Unlock()
 			return
 		}
+		s.initLock.Unlock()
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 
@@ -93,14 +99,14 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		dev, err := GetDevice(p.Name)
+		dev, err := s.GetDevice(p.Name)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`getting device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
 			return
 		}
 
-		dev.Configure(p.Interval, p.Buffer)
+		dev.Configure(p.Interval, p.Buffer, s.GormDB)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
@@ -139,14 +145,14 @@ func (s *IoTEdge) ConfigureSensor(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		dev, err := GetDevice(p.Name)
+		dev, err := s.GetDevice(p.Name)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`getting device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
 			return
 		}
 
-		if err = dev.ConfigureSensor(p.Offset, p.SensorName); err != nil {
+		if err = dev.ConfigureSensor(p.Offset, p.SensorName, s.GormDB); err != nil {
 			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
 			return

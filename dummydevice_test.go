@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/pat-rohn/timeseries"
@@ -21,10 +23,10 @@ type DummyDevice struct {
 
 func TestMain(t *testing.T) {
 
-	conf := GetConfig()
-	conf.DatabaseConfig.TableName = "measurements_test"
-	iot := New(conf.DatabaseConfig, 3006)
-	db := timeseries.New(conf.DatabaseConfig)
+	iot := GetConfig()
+	iot.Port = 3006
+	iot.DatabaseConfig.TableName = "measurements_test"
+	db := timeseries.New(iot.DatabaseConfig)
 	defer db.CloseDatabase()
 	if err := db.CreateDatabase(); err != nil {
 		t.Fatalf("failed to create DB: %v", err)
@@ -45,10 +47,13 @@ func TestMain(t *testing.T) {
 		},
 	}
 
-	dummy.simulate(t)
+	dummy.init(t)
+
+	dummy.sendSensorData(t)
+
 	dummy.DeviceDesc.Sensors = append(dummy.DeviceDesc.Sensors,
 		fmt.Sprintf("%sHumidity", name))
-	dummy.simulate(t)
+	dummy.init(t)
 	configureDeviceReq := ConfigureDeviceReq{
 		Name:     dummy.DeviceDesc.Name,
 		Interval: 10,
@@ -64,7 +69,51 @@ func TestMain(t *testing.T) {
 	dummy.configureSensor(t, configureSensorReq)
 }
 
-func (d *DummyDevice) simulate(t *testing.T) {
+func TestInitDevices(t *testing.T) {
+	log.SetLevel(log.WarnLevel)
+	iot := GetConfig()
+	iot.Port = 3006
+	iot.DatabaseConfig.TableName = "measurements_test"
+	db := timeseries.New(iot.DatabaseConfig)
+	if err := db.CreateDatabase(); err != nil {
+		t.Fatalf("failed to create DB: %v", err)
+	}
+	if err := db.CreateTimeseriesTable(); err != nil {
+		log.Fatalf("failed to create table: %v", err)
+	}
+	db.CloseDatabase()
+
+	go iot.StartSensorServer()
+	time.Sleep(2 * time.Second)
+	//iot.GormDB.CreateBatchSize = 100
+	var wg sync.WaitGroup
+	for i := 0; i < 10000; i++ {
+		name := fmt.Sprintf("DummyOnlyDev%d", i)
+		dummy := DummyDevice{
+			Url: "http://localhost:3006",
+			DeviceDesc: DeviceDesc{
+				Name:        name,
+				Description: fmt.Sprintf("%s1.0;DummyTemp", name),
+				Sensors:     []string{fmt.Sprintf("%sTemperature", name)},
+			},
+		}
+
+		time.Sleep(100 * time.Nanosecond)
+		wg.Add(1)
+		go func(t *testing.T) {
+			dummy.init(t)
+			dummy.sendSensorData(t)
+			wg.Done()
+			fmt.Printf("--> %s\n", dummy.DeviceDesc.Name)
+		}(t)
+
+	}
+	fmt.Println("Wait till ready")
+	wg.Wait()
+	//t.Error("Test")
+}
+
+func (d *DummyDevice) init(t *testing.T) {
 	type Request struct {
 		Device DeviceDesc
 	}
@@ -74,57 +123,65 @@ func (d *DummyDevice) simulate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	log.Infof("%+v", req)
+	//log.Infof("%+v", req)
 
-	resp, err := http.Post(d.Url+URIInitDevice, "application/json",
+	_, err = http.Post(d.Url+URIInitDevice, "application/json",
 		bytes.NewBuffer(json_data))
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var res map[string]interface{}
+}
 
-	json.NewDecoder(resp.Body).Decode(&res)
+func (d *DummyDevice) sendSensorData(t *testing.T) {
+	var data []timeseries.TimeseriesImportStruct
 
-	fmt.Println(res["json"])
-	for j := 0; j < 5; j++ {
-
-		var data []timeseries.TimeseriesImportStruct
-
-		val := timeseries.TimeseriesImportStruct{
-			Tag: fmt.Sprintf("%sTemperature", d.DeviceDesc.Name),
-		}
-		for i := 0; i < 10; i++ {
-			time.Sleep(time.Millisecond * 50)
-			val.Timestamps = append(val.Timestamps, time.Now().Format("2006-01-02 15:04:05.000"))
-			val.Values = append(val.Values, fmt.Sprintf("%f", 283.0+(rand.Float32()*15)))
-			val.Comments = append(val.Values, "dummy")
-		}
-		data = append(data, val)
-		go d.sendData(t, &data)
+	val := timeseries.TimeseriesImportStruct{
+		Tag: d.DeviceDesc.Sensors[0],
 	}
-	time.Sleep(time.Second * 2)
+	for i := 0; i < 10; i++ {
+		time.Sleep(time.Millisecond * 2)
+		val.Timestamps = append(val.Timestamps, time.Now().Format("2006-01-02 15:04:05.000"))
+		val.Values = append(val.Values, fmt.Sprintf("%f", 283.0+(rand.Float32()*15)))
+		val.Comments = append(val.Values, "dummy")
+	}
+	data = append(data, val)
+
+	d.sendData(t, &data)
+	fmt.Printf("Send data: %v\n", d.DeviceDesc.Sensors[0])
+
 }
 
 func (d *DummyDevice) sendData(t *testing.T, data *[]timeseries.TimeseriesImportStruct) {
-	jsonData, err := json.Marshal(data)
+	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	resp, err := http.Post(d.Url+URISaveTimeseries, "application/json",
+	//fmt.Printf(string(jsonData))
+	client := http.Client{
+		Timeout: 40 * time.Second,
+	}
+	resp, err := client.Post(d.Url+URISaveTimeseries, "application/json",
 		bytes.NewBuffer(jsonData))
 
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
+		return
 	}
 
-	var res map[string]interface{}
+	if resp.StatusCode != http.StatusOK {
+		if err != nil {
+			t.Errorf("Failed with status: %s", resp.Status)
+		}
+	}
 
-	json.NewDecoder(resp.Body).Decode(&res)
-
-	fmt.Println(res["json"])
+	_, err = io.ReadAll(resp.Body)
+	// b, err := ioutil.ReadAll(resp.Body)  Go.1.15 and earlier
+	if err != nil {
+		t.Error(err)
+	}
+	//fmt.Println(string(b))
 }
 
 func (d *DummyDevice) ConfigureDevice(t *testing.T, configureDeviceReq ConfigureDeviceReq) {
@@ -132,8 +189,10 @@ func (d *DummyDevice) ConfigureDevice(t *testing.T, configureDeviceReq Configure
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	resp, err := http.Post(d.Url+URIDeviceConfigure, "application/json",
+	client := http.Client{
+		Timeout: 40 * time.Second,
+	}
+	resp, err := client.Post(d.Url+URIDeviceConfigure, "application/json",
 		bytes.NewBuffer(jsonData))
 
 	if err != nil {

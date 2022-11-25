@@ -1,13 +1,19 @@
 package iotedge
 
 import (
-	"github.com/jinzhu/gorm"
+	"sync"
+
 	timeseries "github.com/pat-rohn/timeseries"
+	"gorm.io/gorm"
 )
 
 type IoTEdge struct {
 	Port           int
 	DatabaseConfig timeseries.DBConfig `json:"DbConfig"`
+	GormDB         *gorm.DB
+	initLock       sync.Mutex
+	Timeseries     timeseries.DbHandler
+	tsMutex        sync.Mutex
 }
 
 const (
