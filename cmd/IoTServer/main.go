@@ -5,11 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
-	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-	mqttserver "github.com/mochi-co/mqtt/server"
-	"github.com/mochi-co/mqtt/server/listeners"
 	iotedge "github.com/pat-rohn/go-iotedge"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
@@ -53,7 +49,7 @@ func main() {
 			if len(logPath) > 0 {
 				SetLogfile(name + "-start")
 			}
-			go startMQTTBroker()
+
 			if err := startServer(); err != nil {
 				return err
 			}
@@ -61,20 +57,18 @@ func main() {
 		},
 	}
 
-	var simMqttDeviceCmd = &cobra.Command{
-		Use:   "mqtt-sim",
+	var mqttServerCmd = &cobra.Command{
+		Use:   "mqtt",
 		Args:  cobra.MinimumNArgs(0),
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(logPath) > 0 {
-				SetLogfile(name + "-mqtt-sim")
+				SetLogfile(name + "-mqtt")
 			}
-			go startMQTTBroker()
-			time.Sleep(time.Second * 3)
-			if err := mqttSim(); err != nil {
-				return err
-			}
+			conf := iotedge.GetConfig()
+			iotedge.StartMQTTBroker(conf.MQTTPort, conf.DbConfig)
+
 			return nil
 		},
 	}
@@ -85,7 +79,7 @@ func main() {
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := createTable(); err != nil {
+			if err := CreateTimeseriesTable(); err != nil {
 				return err
 			}
 			return nil
@@ -106,7 +100,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			edge := iotedge.GetConfig()
+			edge := iotedge.New(iotedge.GetConfig())
 			err = edge.InitializeDB()
 			if err != nil {
 				return err
@@ -133,7 +127,7 @@ func main() {
 				return err
 			}
 			sensor := args[1]
-			edge := iotedge.GetConfig()
+			edge := iotedge.New(iotedge.GetConfig())
 			err = edge.InitializeDB()
 			if err != nil {
 				return err
@@ -153,7 +147,7 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&logPath, "logfile", "l", "", "activate and create logfile")
 
 	rootCmd.AddCommand(startServerCmd)
-	rootCmd.AddCommand(simMqttDeviceCmd)
+	rootCmd.AddCommand(mqttServerCmd)
 	rootCmd.AddCommand(createTableCmd)
 	rootCmd.AddCommand(ConfigureDeviceCmd)
 	rootCmd.AddCommand(ConfigureSensorCmd)
@@ -163,11 +157,11 @@ func main() {
 
 }
 
-func createTable() error {
-	iotConfig := iotedge.GetConfig()
+func CreateTimeseriesTable() error {
+	iotConfig := iotedge.New(iotedge.GetConfig())
 	db := timeseries.New(iotConfig.DatabaseConfig)
 	defer db.CloseDatabase()
-	if err := db.CreateDatabase(); err != nil {
+	if err := db.OpenDatabase(); err != nil {
 		log.Error("failed to create DB: %v", err)
 		return err
 	}
@@ -179,7 +173,9 @@ func createTable() error {
 }
 
 func startServer() error {
-	iot := iotedge.GetConfig()
+	config := iotedge.GetConfig()
+	iot := iotedge.New(config)
+	go iotedge.StartMQTTBroker(config.MQTTPort, config.DbConfig)
 	return iot.StartSensorServer()
 }
 
@@ -204,78 +200,4 @@ func SetLogfile(filename string) {
 		MaxAge:     28,   //days
 		Compress:   true, // disabled by default
 	})
-}
-
-var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
-	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
-}
-
-var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	fmt.Println("Connected")
-}
-
-var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
-	fmt.Printf("Connect lost: %v", err)
-}
-
-func mqttSim() error {
-	var broker = "192.168.1.101"
-	var port = 1883
-	fmt.Printf("tcp://%s:%d\n", broker, port)
-	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", broker, port))
-	opts.SetClientID("mqtt-test")
-	opts.SetUsername("chropfi")
-	opts.SetPassword("chropfi-test")
-	opts.SetDefaultPublishHandler(messagePubHandler)
-	opts.OnConnect = connectHandler
-	opts.OnConnectionLost = connectLostHandler
-	client := mqtt.NewClient(opts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	}
-
-	sub(client)
-	publish(client)
-
-	client.Disconnect(250)
-	return nil
-}
-
-func publish(client mqtt.Client) {
-	num := 10000
-	for i := 0; i < num; i++ {
-		text := fmt.Sprintf("Message %d", i)
-		token := client.Publish("livingroom/env", 0, false, text)
-		token.Wait()
-		time.Sleep(time.Second)
-		msg := `  {
-			"temperature": ` + fmt.Sprintf("%f", 23.20) + ` ,
-			"humidity": ` + fmt.Sprintf("%f", 53.20) + ` 
-		  }`
-		fmt.Println(msg)
-	}
-}
-
-func sub(client mqtt.Client) {
-	topic := "topic/test"
-	token := client.Subscribe(topic, 1, nil)
-	token.Wait()
-	fmt.Printf("Subscribed to topic: %s", topic)
-}
-
-func startMQTTBroker() {
-	server := mqttserver.NewServer(nil)
-
-	tcp := listeners.NewTCP("t1", ":9333")
-
-	err := server.AddListener(tcp, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = server.Serve()
-	if err != nil {
-		log.Fatal(err)
-	}
 }

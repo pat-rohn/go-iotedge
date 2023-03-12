@@ -3,6 +3,7 @@ package iotedge
 import (
 	"fmt"
 
+	sqlite3 "github.com/mattn/go-sqlite3"
 	"github.com/pat-rohn/timeseries"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -53,10 +54,9 @@ func (e *IoTEdge) InitializeDB() error {
 }
 
 func (e *IoTEdge) Init(deviceDesc DeviceDesc) (IoTDevice, error) {
-	logFields := log.Fields{"fnct": "Init"}
+	logFields := log.Fields{"fnct": "Init", "Name": deviceDesc.Name, "Desc": deviceDesc.Description}
 	log.WithFields(logFields).Infof("Init %s.", deviceDesc.Name)
 	if e.hasDevice(deviceDesc.Name) {
-
 		log.WithFields(logFields).Infoln("Device exists already.")
 		hasUpdate := false
 		dev, err := e.GetDevice(deviceDesc.Name)
@@ -109,8 +109,20 @@ func (e *IoTEdge) Init(deviceDesc DeviceDesc) (IoTDevice, error) {
 		DatabaseConfig: e.DatabaseConfig,
 	}
 
-	_ = e.GormDB.Create(&dev.Device)
+	err := e.GormDB.Create(&dev.Device).Error
+	if err != nil {
 
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) {
+			if errors.Is(sqliteErr.Code, sqlite3.ErrConstraint) {
+				log.WithFields(logFields).Warnf("%s exists already: %s", dev.Device.Name, err)
+				return dev, nil
+			}
+		}
+
+		log.WithFields(logFields).Errorf("Failed to create device %s", err)
+		return IoTDevice{}, errors.Wrap(err, "Failed to create device")
+	}
 	return dev, nil
 }
 
@@ -119,18 +131,17 @@ func (e *IoTEdge) GetDevice(deviceName string) (IoTDevice, error) {
 	log.WithFields(logFields).Infof("%s", deviceName)
 
 	var dev Device
-	result := e.GormDB.Preload("Sensors").First(&dev, "Name = ?", deviceName)
-
-	if result.RowsAffected > 0 {
-		log.WithFields(logFields).Infof("Found device %s", dev.Name)
-		return IoTDevice{
-			Device:         dev,
-			DatabaseConfig: e.DatabaseConfig,
-		}, nil
+	err := e.GormDB.Model(&dev).First(&dev, "Name = ?", deviceName).Error
+	if err != nil {
+		log.WithFields(logFields).Errorf("Device %s not found", dev.Name)
+		return IoTDevice{}, nil
 	}
+	log.WithFields(logFields).Infof("device %s found", dev.Name)
+	return IoTDevice{
+		Device:         dev,
+		DatabaseConfig: e.DatabaseConfig,
+	}, nil
 
-	log.WithFields(logFields).Errorf("No device found %+v", dev)
-	return IoTDevice{}, nil
 }
 
 func (d *IoTDevice) Configure(interval float32, buffer int, gormDB *gorm.DB) error {
@@ -186,29 +197,27 @@ func (d *IoTDevice) ConfigureSensor(offset float32, sensorName string, gormDB *g
 func (e *IoTEdge) hasDevice(name string) bool {
 	logFields := log.Fields{"fnct": "hasDevice"}
 	log.WithFields(logFields).Infof("Check for %s", name)
-	var exists bool
 	var dev Device
-	err := e.GormDB.Model(dev).Select("count(*) > 0").
+	err := e.GormDB.Model(dev).
 		Where("Name = ?", name).
-		Find(&exists).
 		Error
 	if err != nil {
-		log.WithFields(logFields).Warnf("Failed to check if record exist: %v", err)
+		log.WithFields(logFields).Errorf("Failed to check if record exist: %v", err)
 		return false
 	}
-	if exists {
-
-		log.WithFields(logFields).Warnf("Has found sensor: %v", name)
-		return true
+	if err != gorm.ErrRecordNotFound {
+		log.WithFields(logFields).Warnf("Device %s not found", name)
+		return false
 	}
 
-	log.WithFields(logFields).Warnf("Sensor %v does not exist", name)
-	return false
+	log.WithFields(logFields).Warnf("Device %v exist", name)
+	return true
 }
 
 func (d *IoTDevice) hasSensor(name string, gormDB *gorm.DB) bool {
 	logFields := log.Fields{"fnct": "hasSensor"}
 	log.WithFields(logFields).Infof("Check for %s", name)
+	//return true
 	var sensor Sensor
 	var exists bool
 	err := gormDB.Model(sensor).Select("count(*) > 0").

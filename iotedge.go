@@ -9,7 +9,70 @@ import (
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"golang.org/x/sync/semaphore"
 )
+
+type IoTConfig struct {
+	Port     int
+	MQTTPort int
+	DbConfig timeseries.DBConfig
+}
+
+func New(iotConfig IoTConfig) IoTEdge {
+	logFields := log.Fields{"fnct": "New"}
+	log.WithFields(logFields).Tracef("Config %+v", iotConfig)
+	return IoTEdge{
+		Port:           iotConfig.Port,
+		DatabaseConfig: iotConfig.DbConfig,
+		sem:            semaphore.NewWeighted(1),
+	}
+}
+
+func GetConfig() IoTConfig {
+	logFields := log.Fields{"fnct": "GetConfig"}
+	viper.SetDefault("DbConfig.Name", "plottydb")
+	viper.SetDefault("DbConfig.IPOrPath", "localhost")
+	viper.SetDefault("DbConfig.UsePostgres", true)
+	viper.SetDefault("DbConfig.User", "user")
+	viper.SetDefault("DbConfig.Password", "password")
+	viper.SetDefault("DbConfig.Port", 5432)
+	viper.SetDefault("DbConfig.TableName", "measurements1")
+	viper.SetDefault("Port", 3004)
+	viper.SetDefault("MQTTPort", 1883)
+
+	viper.SetConfigName("iot")
+	viper.SetConfigType("json")
+	dirname, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	pathToConfig := dirname + "/.iotserver"
+	viper.AddConfigPath(pathToConfig)
+	viper.AddConfigPath(".")
+	log.WithFields(logFields).Infoln("Read Config")
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			log.Warnf(fmt.Sprintf("no config file found: %v", err))
+			if err := os.Mkdir(pathToConfig, 0755); err != nil {
+				log.Fatal(fmt.Sprintf("Creating config folder failed: %v", err))
+			}
+			err = viper.SafeWriteConfig()
+			if err != nil {
+				log.Fatal(fmt.Sprintf("Storing default config failed: %v", err))
+			}
+		} else {
+			log.Fatal(fmt.Sprintf("Loading config failed: %v", err))
+		}
+	}
+
+	var iotConfig IoTConfig
+
+	err = viper.Unmarshal(&iotConfig)
+	if err != nil {
+		log.Fatalf("fatal error config file: %v ", err)
+	}
+	return iotConfig
+}
 
 func (s *IoTEdge) StartSensorServer() error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
@@ -54,58 +117,5 @@ func (s *IoTEdge) WriteToDatabase(data []timeseries.TimeseriesImportStruct) {
 
 		}
 		s.tsMutex.Unlock()
-	}
-}
-
-func GetConfig() IoTEdge {
-	logFields := log.Fields{"fnct": "GetConfig"}
-	viper.SetDefault("DbConfig.Name", "plottydb")
-	viper.SetDefault("DbConfig.IPOrPath", "localhost")
-	viper.SetDefault("DbConfig.UsePostgres", true)
-	viper.SetDefault("DbConfig.User", "user")
-	viper.SetDefault("DbConfig.Password", "password")
-	viper.SetDefault("DbConfig.Port", 5432)
-	viper.SetDefault("DbConfig.TableName", "measurements1")
-	viper.SetDefault("Port", 3004)
-
-	viper.SetConfigName("iot")
-	viper.SetConfigType("json")
-	dirname, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-	pathToConfig := dirname + "/.iotserver"
-	viper.AddConfigPath(pathToConfig)
-	viper.AddConfigPath(".")
-	log.WithFields(logFields).Infoln("Read Config")
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			log.Warnf(fmt.Sprintf("no config file found: %v", err))
-			if err := os.Mkdir(pathToConfig, 0755); err != nil {
-				log.Fatal(fmt.Sprintf("Creating config folder failed: %v", err))
-			}
-			err = viper.SafeWriteConfig()
-			if err != nil {
-				log.Fatal(fmt.Sprintf("Storing default config failed: %v", err))
-			}
-		} else {
-			log.Fatal(fmt.Sprintf("Loading config failed: %v", err))
-		}
-	}
-	type config struct {
-		Port     int
-		DbConfig timeseries.DBConfig
-	}
-
-	var iotConfig config
-
-	err = viper.Unmarshal(&iotConfig)
-	if err != nil {
-		panic(fmt.Errorf("fatal error config file: %w ", err))
-	}
-	log.Tracef("Config %+v", iotConfig)
-	return IoTEdge{
-		Port:           iotConfig.Port,
-		DatabaseConfig: iotConfig.DbConfig,
 	}
 }
