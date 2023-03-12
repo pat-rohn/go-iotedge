@@ -1,0 +1,6 @@
+devices.db
+TestInitDevices.log
+cmd/IoTServer/IoTServer
+cmd/IoTServer/measurements.db
+TestMQTT.log
+TestMain.log

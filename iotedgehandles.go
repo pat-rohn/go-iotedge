@@ -24,8 +24,11 @@ func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
 		log.Tracef("%+v", data)
 
 		//dbh := timeseries.New(s.DatabaseConfig)
-		go s.WriteToDatabase(data)
+		s.WriteToDatabase(data)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
 
+		json.NewEncoder(w).Encode(`{"success": true}`)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		log.Errorf("Cant do that.")
@@ -36,7 +39,6 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 
 	logFields := log.Fields{"fnct": "InitDevice"}
 	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-
 	switch r.Method {
 	case "POST":
 		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
@@ -54,17 +56,25 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		dev, err := Init(p.DeviceDesc)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`init device failed: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("init device failed: %+v ", err.Error())
+		if !s.sem.TryAcquire(1) {
+			http.Error(w, fmt.Sprintf(`busy for init device %v.`, p.DeviceDesc.Name), http.StatusInternalServerError)
+			log.WithFields(logFields).Errorf("busy for init device %s ", p.DeviceDesc.Name)
 			return
 		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
+		defer s.sem.Release(1)
+
+		dev, err := s.Init(p.DeviceDesc)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`init device %s failed: %+v.`, p.DeviceDesc.Name, err.Error()), http.StatusInternalServerError)
+			log.WithFields(logFields).Errorf("init device %s failed: %+v ", p.DeviceDesc.Name, err.Error())
+			return
+		}
 
 		log.WithFields(logFields).Infof("device: %+v ", dev)
 		json.NewEncoder(w).Encode(dev.Device)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
 		return
 
 	default:
@@ -77,9 +87,11 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 
 	logFields := log.Fields{"fnct": "ConfigureDevice"}
 	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-
+	SetHeaders(w, r.Header.Get("Origin"))
 	switch r.Method {
-	case "POST":
+	case http.MethodOptions:
+
+	case http.MethodPost:
 		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
 
 		d := json.NewDecoder(r.Body)
@@ -93,14 +105,14 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		dev, err := GetDevice(p.Name)
+		dev, err := s.GetDevice(p.Name)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`getting device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
 			return
 		}
 
-		dev.Configure(p.Interval, p.Buffer)
+		dev.Configure(p.Interval, p.Buffer, s.GormDB)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
@@ -123,8 +135,9 @@ func (s *IoTEdge) ConfigureSensor(w http.ResponseWriter, r *http.Request) {
 
 	logFields := log.Fields{"fnct": "ConfigureDevice"}
 	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-
+	SetHeaders(w, r.Header.Get("Origin"))
 	switch r.Method {
+	case http.MethodOptions:
 	case "POST":
 		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
 
@@ -139,14 +152,14 @@ func (s *IoTEdge) ConfigureSensor(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		dev, err := GetDevice(p.Name)
+		dev, err := s.GetDevice(p.Name)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`getting device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
 			return
 		}
 
-		if err = dev.ConfigureSensor(p.Offset, p.SensorName); err != nil {
+		if err = dev.ConfigureSensor(p.Offset, p.SensorName, s.GormDB); err != nil {
 			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
 			return
@@ -168,8 +181,10 @@ func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 
 	logFields := log.Fields{"fnct": "UpdateSensorHandler"}
 	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-
+	SetHeaders(w, r.Header.Get("Origin"))
 	switch r.Method {
+	case http.MethodOptions:
+
 	case "GET":
 		output := Output{Status: "OK", Answer: "Okay"}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -189,7 +204,7 @@ func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 
 		dbh := timeseries.New(s.DatabaseConfig)
 		defer dbh.CloseDatabase()
-		if err := dbh.CreateDatabase(); err != nil {
+		if err := dbh.OpenDatabase(); err != nil {
 			log.Errorf("Failed to open database: %v", err)
 			http.Error(w, fmt.Sprintf("Failed to open database: %v", err), http.StatusInternalServerError)
 			return
@@ -222,7 +237,9 @@ func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
 	logFields := log.Fields{"fnct": "UploadDataHandler"}
 	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
+	SetHeaders(w, r.Header.Get("Origin"))
 	switch r.Method {
+	case http.MethodOptions:
 	case "GET":
 
 		output := Output{Status: "OK", Answer: "Okay"}
@@ -243,7 +260,7 @@ func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
 
 		dbh := timeseries.New(s.DatabaseConfig)
 		defer dbh.CloseDatabase()
-		if err := dbh.CreateDatabase(); err != nil {
+		if err := dbh.OpenDatabase(); err != nil {
 			log.Errorf("Failed to open database: %v", err)
 			http.Error(w, fmt.Sprintf("Failed to open database: %v", err),
 				http.StatusInternalServerError)
@@ -266,4 +283,13 @@ func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		log.WithFields(logFields).Errorln("Only Post is allowed.")
 	}
+}
+
+func SetHeaders(w http.ResponseWriter, origin string) {
+	log.Tracef("origin from header: %+s", origin)
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Allow-Methods", "PUT, POST, PATCH, OPTIONS, GET, DELETE")
+	w.Header().Set("Access-Control-Allow-Headers", "content-type")
+	w.Header().Set("Access-Control-Max-Age", "240")
 }

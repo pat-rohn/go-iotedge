@@ -3,7 +3,9 @@ package iotedge
 import (
 	"fmt"
 
+	sqlite3 "github.com/mattn/go-sqlite3"
 	"github.com/pat-rohn/timeseries"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -15,35 +17,51 @@ type IoTDevice struct {
 	Device         Device
 }
 
-func InitializeDB() error {
+func (e *IoTEdge) InitializeDB() error {
 	logFields := log.Fields{"fnct": "InitializeDB"}
 	log.WithFields(logFields).Infoln("GORM init")
-	db, err := getORMConn(GetConfig().DatabaseConfig)
-	if err != nil {
-		return err
+	if e.DatabaseConfig.UsePostgres {
+		dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s port=%v sslmode=disable TimeZone=Europe/Zurich",
+			e.DatabaseConfig.User, e.DatabaseConfig.Password, e.DatabaseConfig.Name, e.DatabaseConfig.Port,
+		)
+		var err error
+		e.GormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err != nil {
+			fmt.Println(err.Error())
+			return errors.Wrap(err, "open failed")
+		}
+		//dsn := "host=localhost user=gorm password=gorm dbname=gorm port=9920 sslmode=disable TimeZone=Asia/Shanghai"
+
+	} else {
+
+		var err error
+		e.GormDB, err = gorm.Open(sqlite.Open("devices.db"), &gorm.Config{})
+		if err != nil {
+			fmt.Println(err.Error())
+			return errors.Wrap(err, "open failed")
+		}
 	}
 
-	err = db.AutoMigrate(&Sensor{})
+	err := e.GormDB.AutoMigrate(&Sensor{})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "AutoMigrate Sensor failed")
 	}
-	err = db.AutoMigrate(&Device{})
+	err = e.GormDB.AutoMigrate(&Device{})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "AutoMigrate Device failed")
 	}
 	return nil
 }
 
-func Init(deviceDesc DeviceDesc) (IoTDevice, error) {
-	logFields := log.Fields{"fnct": "Init"}
+func (e *IoTEdge) Init(deviceDesc DeviceDesc) (IoTDevice, error) {
+	logFields := log.Fields{"fnct": "Init", "Name": deviceDesc.Name, "Desc": deviceDesc.Description}
 	log.WithFields(logFields).Infof("Init %s.", deviceDesc.Name)
-	if hasDevice(deviceDesc.Name) {
-
+	if e.hasDevice(deviceDesc.Name) {
 		log.WithFields(logFields).Infoln("Device exists already.")
 		hasUpdate := false
-		dev, err := GetDevice(deviceDesc.Name)
+		dev, err := e.GetDevice(deviceDesc.Name)
 		if err != nil {
-			return IoTDevice{}, err
+			return IoTDevice{}, errors.Wrap(err, "AutoMigrate Device failed")
 		}
 		if dev.Device.Description != deviceDesc.Description {
 			log.WithFields(logFields).Infof("New Description: %s", deviceDesc.Description)
@@ -52,7 +70,7 @@ func Init(deviceDesc DeviceDesc) (IoTDevice, error) {
 
 		}
 		for _, s := range deviceDesc.Sensors {
-			if !dev.hasSensor(s) {
+			if !dev.hasSensor(s, e.GormDB) {
 				hasUpdate = true
 				log.WithFields(logFields).Infof("New sensor found: %s", s)
 				dev.Device.Sensors = append(dev.Device.Sensors, Sensor{
@@ -62,17 +80,10 @@ func Init(deviceDesc DeviceDesc) (IoTDevice, error) {
 			}
 		}
 		if hasUpdate {
-
-			db, err := getORMConn(dev.DatabaseConfig)
-			if err != nil {
-				log.WithFields(logFields).Error(err)
-				return IoTDevice{}, err
-			}
-
-			result := db.Save(&dev.Device)
+			result := e.GormDB.Save(&dev.Device)
 			if err = result.Error; err != nil || result.RowsAffected <= 0 {
-				log.WithFields(logFields).Errorf("Failed to save device %v", err)
-				return IoTDevice{}, err
+				log.WithFields(logFields).Error(errors.Wrap(err, "Failed to save device"))
+				return IoTDevice{}, errors.Wrap(err, "Failed to save device")
 			}
 		}
 		return dev, nil
@@ -95,70 +106,55 @@ func Init(deviceDesc DeviceDesc) (IoTDevice, error) {
 			Buffer:      3,
 			Description: deviceDesc.Description,
 		},
-		DatabaseConfig: GetConfig().DatabaseConfig,
+		DatabaseConfig: e.DatabaseConfig,
 	}
 
-	db, err := getORMConn(dev.DatabaseConfig)
+	err := e.GormDB.Create(&dev.Device).Error
 	if err != nil {
-		log.WithFields(logFields).Error(err)
-		return IoTDevice{}, err
-	}
 
-	result := db.Create(&dev.Device)
-	if err = result.Error; err != nil || result.RowsAffected <= 0 {
-		log.WithFields(logFields).Errorf("Failed to save device %v", err)
-		return IoTDevice{}, err
-	}
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) {
+			if errors.Is(sqliteErr.Code, sqlite3.ErrConstraint) {
+				log.WithFields(logFields).Warnf("%s exists already: %s", dev.Device.Name, err)
+				return dev, nil
+			}
+		}
 
-	return dev, err
+		log.WithFields(logFields).Errorf("Failed to create device %s", err)
+		return IoTDevice{}, errors.Wrap(err, "Failed to create device")
+	}
+	return dev, nil
 }
 
-func GetDevice(deviceName string) (IoTDevice, error) {
+func (e *IoTEdge) GetDevice(deviceName string) (IoTDevice, error) {
 	logFields := log.Fields{"fnct": "GetDevice"}
 	log.WithFields(logFields).Infof("%s", deviceName)
-	config := GetConfig()
-	db, err := getORMConn(config.DatabaseConfig)
-	if err != nil {
-		log.WithFields(logFields).Error(err)
-		return IoTDevice{}, err
-	}
 
 	var dev Device
-	result := db.Preload("Sensors").First(&dev, "Name = ?", deviceName)
-	if err = result.Error; err != nil {
-		log.WithFields(logFields).Error(err)
-		return IoTDevice{}, err
+	err := e.GormDB.Model(&dev).First(&dev, "Name = ?", deviceName).Error
+	if err != nil {
+		log.WithFields(logFields).Errorf("Device %s not found", dev.Name)
+		return IoTDevice{}, nil
 	}
-	if result.RowsAffected > 0 {
-		log.WithFields(logFields).Infof("Found device %s", dev.Name)
-		return IoTDevice{
-			Device:         dev,
-			DatabaseConfig: config.DatabaseConfig,
-		}, nil
-	}
+	log.WithFields(logFields).Infof("device %s found", dev.Name)
+	return IoTDevice{
+		Device:         dev,
+		DatabaseConfig: e.DatabaseConfig,
+	}, nil
 
-	log.WithFields(logFields).Errorf("No device found %+v", dev)
-	return IoTDevice{}, err
 }
 
-func (d *IoTDevice) Configure(interval float32, buffer int) error {
+func (d *IoTDevice) Configure(interval float32, buffer int, gormDB *gorm.DB) error {
 	logFields := log.Fields{"fnct": "ConfigureDevice"}
 	log.WithFields(logFields).Infof("Configure device %s with interval/buffer: %v/%v ",
 		d.Device.Name, interval, buffer)
-	db, err := getORMConn(d.DatabaseConfig)
-	if err != nil {
-		log.WithFields(logFields).Error(err)
-		return err
-	}
+
 	var devToUpdate Device
-	res := db.First(&devToUpdate, "Name= ?", d.Device.Name)
-	if res.Error != nil {
-		log.WithFields(logFields).Error(res.Error)
-		return err
-	}
+	//res := gormDB.First(&devToUpdate, "Name= ?", d.Device.Name)
+
 	devToUpdate.Interval = interval
 	devToUpdate.Buffer = buffer
-	res = db.Save(&devToUpdate)
+	res := gormDB.Save(&devToUpdate)
 	if res.Error != nil {
 		log.WithFields(logFields).Error(res.Error)
 		return res.Error
@@ -172,25 +168,20 @@ func (d *IoTDevice) Configure(interval float32, buffer int) error {
 	return nil
 }
 
-func (d *IoTDevice) ConfigureSensor(offset float32, sensorName string) error {
+func (d *IoTDevice) ConfigureSensor(offset float32, sensorName string, gormDB *gorm.DB) error {
 	logFields := log.Fields{"fnct": "ConfigureSensor"}
 	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ",
 		d.Device.Name, offset)
 
-	db, err := getORMConn(d.DatabaseConfig)
-	if err != nil {
-		log.WithFields(logFields).Error(err)
-		return err
-	}
 	var sensorToUpdate Sensor
-	res := db.First(&sensorToUpdate, "Name= ?", sensorName)
+	res := gormDB.First(&sensorToUpdate, "Name= ?", sensorName)
 	if res.Error != nil {
 
 		log.WithFields(logFields).Errorf("Failed to get sensor %s: %v", sensorName, res.Error)
 		return res.Error
 	}
 	sensorToUpdate.Offset = offset
-	res = db.Save(&sensorToUpdate)
+	res = gormDB.Save(&sensorToUpdate)
 	if res.Error != nil {
 		log.WithFields(logFields).Error(res.Error)
 		return res.Error
@@ -203,74 +194,44 @@ func (d *IoTDevice) ConfigureSensor(offset float32, sensorName string) error {
 	return nil
 }
 
-func hasDevice(name string) bool {
+func (e *IoTEdge) hasDevice(name string) bool {
 	logFields := log.Fields{"fnct": "hasDevice"}
 	log.WithFields(logFields).Infof("Check for %s", name)
-	config := GetConfig()
-	db, err := getORMConn(config.DatabaseConfig)
+	var dev Device
+	err := e.GormDB.Model(dev).
+		Where("Name = ?", name).
+		Error
 	if err != nil {
+		log.WithFields(logFields).Errorf("Failed to check if record exist: %v", err)
+		return false
+	}
+	if err != gorm.ErrRecordNotFound {
+		log.WithFields(logFields).Warnf("Device %s not found", name)
 		return false
 	}
 
-	var dev Device
-	res := db.First(&dev, "Name = ?", name)
-	if res.Error != nil {
-		log.WithFields(logFields).Infof("failed to find device: %v", res.Error)
-		return false
-	}
-	if res.RowsAffected > 0 {
-		log.WithFields(logFields).Infof("Found device %s", dev.Name)
-		return true
-	}
-	log.WithFields(logFields).Infof("No device with name %s", dev.Name)
-	return false
+	log.WithFields(logFields).Warnf("Device %v exist", name)
+	return true
 }
 
-func (d *IoTDevice) hasSensor(name string) bool {
+func (d *IoTDevice) hasSensor(name string, gormDB *gorm.DB) bool {
 	logFields := log.Fields{"fnct": "hasSensor"}
 	log.WithFields(logFields).Infof("Check for %s", name)
-	db, err := getORMConn(d.DatabaseConfig)
-	if err != nil {
-		return false
-	}
-
+	//return true
 	var sensor Sensor
-	res := db.First(&sensor, "Name = ?", name)
-	if res.Error != nil {
-		log.WithFields(logFields).Infof("failed to find sensor: %v", res.Error)
+	var exists bool
+	err := gormDB.Model(sensor).Select("count(*) > 0").
+		Where("Name = ?", name).
+		Find(&exists).
+		Error
+	if err != nil {
+		log.WithFields(logFields).Infof("failed to find sensor: %v", err)
 		return false
 	}
-	if res.RowsAffected > 0 {
-		log.WithFields(logFields).Infof("Found sensor %s", sensor.Name)
+	if exists {
+		log.WithFields(logFields).Infof("Has sensor with name %s", name)
 		return true
 	}
-	log.WithFields(logFields).Infof("No sensor with name %s", sensor.Name)
+	log.WithFields(logFields).Infof("No sensor with name %s", name)
 	return false
-}
-
-func getORMConn(conf timeseries.DBConfig) (db *gorm.DB, err error) {
-
-	if conf.UsePostgres {
-		dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s port=%v sslmode=disable TimeZone=Europe/Zurich",
-			conf.User, conf.Password, conf.Name, conf.Port,
-		)
-
-		//dsn := "host=localhost user=gorm password=gorm dbname=gorm port=9920 sslmode=disable TimeZone=Asia/Shanghai"
-		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		if err != nil {
-			fmt.Println(err.Error())
-			return nil, err
-		}
-		return db, nil
-
-	}
-
-	database, err := gorm.Open(sqlite.Open("devices.db"), &gorm.Config{})
-	if err != nil {
-		fmt.Println(err.Error())
-		return nil, err
-	}
-
-	return database, nil
-
 }

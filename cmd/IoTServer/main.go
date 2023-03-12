@@ -2,24 +2,39 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 	"strconv"
 
 	iotedge "github.com/pat-rohn/go-iotedge"
-	startup "github.com/pat-rohn/go-startup"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var loglevel string
 var logPath string
 
 func initGlobalFlags() {
-	startup.SetLogLevel(loglevel)
+	switch loglevel {
+	case "--trace", "t":
+		log.SetLevel(log.TraceLevel)
+	case "--info", "i":
+		log.SetLevel(log.InfoLevel)
+	case "--warn", "w":
+		log.SetLevel(log.WarnLevel)
+	case "--error", "e":
+		log.SetLevel(log.ErrorLevel)
+	default:
+		fmt.Printf("Invalid log level '%s'\n", loglevel)
+	}
+	fmt.Printf("LogLevel is set to %s\n", loglevel)
 }
 
 func main() {
-	fmt.Println("IoT-Server")
+	name := "IoT-Server"
+	fmt.Println(name)
 	var rootCmd = &cobra.Command{
 		Use:   "IoT-Server",
 		Short: "IoT-Server receives and stores timeseries",
@@ -32,11 +47,28 @@ func main() {
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(logPath) > 0 {
-				startup.SetLogPath(logPath)
+				SetLogfile(name + "-start")
 			}
+
 			if err := startServer(); err != nil {
 				return err
 			}
+			return nil
+		},
+	}
+
+	var mqttServerCmd = &cobra.Command{
+		Use:   "mqtt",
+		Args:  cobra.MinimumNArgs(0),
+		Short: "",
+		Long:  ``,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(logPath) > 0 {
+				SetLogfile(name + "-mqtt")
+			}
+			conf := iotedge.GetConfig()
+			iotedge.StartMQTTBroker(conf.MQTTPort, conf.DbConfig)
+
 			return nil
 		},
 	}
@@ -47,7 +79,7 @@ func main() {
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := createTable(); err != nil {
+			if err := CreateTimeseriesTable(); err != nil {
 				return err
 			}
 			return nil
@@ -60,9 +92,6 @@ func main() {
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(logPath) > 0 {
-				startup.SetLogPath(logPath)
-			}
 			interval, err := strconv.ParseFloat(args[1], 32)
 			if err != nil {
 				return err
@@ -71,11 +100,16 @@ func main() {
 			if err != nil {
 				return err
 			}
-			iotDevice, err := iotedge.GetDevice(args[0])
+			edge := iotedge.New(iotedge.GetConfig())
+			err = edge.InitializeDB()
 			if err != nil {
 				return err
 			}
-			if err = iotDevice.Configure(float32(interval), int(buffer)); err != nil {
+			iotDevice, err := edge.GetDevice(args[0])
+			if err != nil {
+				return err
+			}
+			if err = iotDevice.Configure(float32(interval), int(buffer), edge.GormDB); err != nil {
 				return err
 			}
 			return nil
@@ -86,19 +120,23 @@ func main() {
 		Use:   "conf-sensor sensorname offset",
 		Args:  cobra.MinimumNArgs(3),
 		Short: "",
-		Long:  `e.g IoTServer conf-sensor -v i Basel3Humidity -- -2 `,
+		Long:  `e.g IoTServer conf-sensor -v i Basel3 Basel3Humidity -- -2 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			offset, err := strconv.ParseFloat(args[2], 32)
 			if err != nil {
 				return err
 			}
 			sensor := args[1]
-
-			iotDevice, err := iotedge.GetDevice(args[0])
+			edge := iotedge.New(iotedge.GetConfig())
+			err = edge.InitializeDB()
 			if err != nil {
 				return err
 			}
-			if err = iotDevice.ConfigureSensor(float32(offset), sensor); err != nil {
+			iotDevice, err := edge.GetDevice(args[0])
+			if err != nil {
+				return err
+			}
+			if err = iotDevice.ConfigureSensor(float32(offset), sensor, edge.GormDB); err != nil {
 				return err
 			}
 			return nil
@@ -109,6 +147,7 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&logPath, "logfile", "l", "", "activate and create logfile")
 
 	rootCmd.AddCommand(startServerCmd)
+	rootCmd.AddCommand(mqttServerCmd)
 	rootCmd.AddCommand(createTableCmd)
 	rootCmd.AddCommand(ConfigureDeviceCmd)
 	rootCmd.AddCommand(ConfigureSensorCmd)
@@ -118,11 +157,11 @@ func main() {
 
 }
 
-func createTable() error {
-	iotConfig := iotedge.GetConfig()
+func CreateTimeseriesTable() error {
+	iotConfig := iotedge.New(iotedge.GetConfig())
 	db := timeseries.New(iotConfig.DatabaseConfig)
 	defer db.CloseDatabase()
-	if err := db.CreateDatabase(); err != nil {
+	if err := db.OpenDatabase(); err != nil {
 		log.Error("failed to create DB: %v", err)
 		return err
 	}
@@ -134,7 +173,31 @@ func createTable() error {
 }
 
 func startServer() error {
-	iotConfig := iotedge.GetConfig()
-	iot := iotedge.New(iotConfig.DatabaseConfig, iotConfig.Port)
+	config := iotedge.GetConfig()
+	iot := iotedge.New(config)
+	go iotedge.StartMQTTBroker(config.MQTTPort, config.DbConfig)
 	return iot.StartSensorServer()
+}
+
+func SetLogfile(filename string) {
+	var path string
+	operatingSystem := runtime.GOOS
+	switch operatingSystem {
+	case "windows":
+		path = "C:/ProgramData/"
+	case "linux":
+		os.Mkdir("./log", 0644)
+		path = "./log/"
+	default:
+		os.Mkdir("./log", 0644)
+		path = "./log/"
+	}
+	fmt.Printf("%s: Logging path set to '%v'\n", operatingSystem, path)
+	log.SetOutput(&lumberjack.Logger{
+		Filename:   fmt.Sprintf("%s%s.log", path, filename),
+		MaxSize:    500, // megabytes
+		MaxBackups: 3,
+		MaxAge:     28,   //days
+		Compress:   true, // disabled by default
+	})
 }
