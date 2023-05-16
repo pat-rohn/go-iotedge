@@ -33,9 +33,12 @@ func TestMain(t *testing.T) {
 	}
 	defer f.Close()
 	log.SetOutput(f)
-	iot := New(IoTConfig(GetConfig()))
+	config := GetConfig()
+	iot := New(config)
 	iot.Port = 3006
 	iot.DatabaseConfig.TableName = "measurements_test"
+	iot.DatabaseConfig.IPOrPath = "./"
+	iot.DatabaseConfig.Name = "devices.db"
 	db := timeseries.New(iot.DatabaseConfig)
 	defer db.CloseDatabase()
 	if err := db.OpenDatabase(); err != nil {
@@ -45,7 +48,12 @@ func TestMain(t *testing.T) {
 		log.Fatalf("failed to create table: %v", err)
 	}
 
-	go iot.StartSensorServer()
+	go func() {
+		if err := iot.StartSensorServer(); err != nil {
+			t.Fatalf("Failed to start server %s", err)
+		}
+	}()
+
 	time.Sleep(time.Second * 2)
 	name := "Dummy" + uuid.NewString()
 	dummy := DummyDevice{
@@ -91,8 +99,10 @@ func TestInitDevices(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	iot := New(GetConfig())
 	iot.Port = 3006
-	iot.DatabaseConfig.TableName = "measurements_test"
+	iot.DatabaseConfig.IPOrPath = "./"
 	db := timeseries.New(iot.DatabaseConfig)
+	iot.DatabaseConfig.TableName = "measurements_test"
+	iot.DatabaseConfig.Name = "devices.db"
 
 	if err := db.CreateTimeseriesTable(); err != nil {
 		log.Fatalf("failed to create table: %v", err)

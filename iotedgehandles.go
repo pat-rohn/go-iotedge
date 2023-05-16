@@ -54,6 +54,8 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
 			return
 		}
+		logFields["Name"] = p.DeviceDesc.Name
+		logFields["Description"] = p.DeviceDesc.Description
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
 		if !s.sem.TryAcquire(1) {
@@ -70,8 +72,8 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.WithFields(logFields).Infof("device: %+v ", dev)
-		json.NewEncoder(w).Encode(dev.Device)
+		log.WithFields(logFields).Infof("device initialized: %+v ", dev)
+		json.NewEncoder(w).Encode(dev)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 
@@ -111,8 +113,9 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
 			return
 		}
-
-		dev.Configure(p.Interval, p.Buffer, s.GormDB)
+		dev.Interval = p.Interval
+		dev.Buffer = p.Buffer
+		err = s.Configure(dev)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
@@ -122,7 +125,7 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
 		log.WithFields(logFields).Infof("device: %+v ", dev)
-		json.NewEncoder(w).Encode(dev.Device)
+		json.NewEncoder(w).Encode(dev)
 		return
 
 	default:
@@ -131,7 +134,7 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *IoTEdge) ConfigureSensor(w http.ResponseWriter, r *http.Request) {
+func (s *IoTEdge) ConfSensor(w http.ResponseWriter, r *http.Request) {
 
 	logFields := log.Fields{"fnct": "ConfigureDevice"}
 	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
@@ -158,17 +161,30 @@ func (s *IoTEdge) ConfigureSensor(w http.ResponseWriter, r *http.Request) {
 			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
 			return
 		}
-
-		if err = dev.ConfigureSensor(p.Offset, p.SensorName, s.GormDB); err != nil {
+		sensors, err := s.GetSensors(dev.ID)
+		if err != nil {
 			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
 			return
 		}
+
+		for _, ses := range sensors {
+			if ses.Name == p.SensorName {
+				updateSensor := ses
+				updateSensor.Offset = p.Offset
+				updateSensor.DeviceID = dev.ID
+
+				if err = s.ConfigureSensor(updateSensor); err != nil {
+					log.WithFields(logFields).Errorf("configuring sensor failed: %+v ", err.Error())
+				}
+
+			}
+		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 
-		log.WithFields(logFields).Infof("device: %+v ", dev)
-		json.NewEncoder(w).Encode(dev.Device)
+		log.WithFields(logFields).Infof("sensor: %+v ", dev)
+		json.NewEncoder(w).Encode(dev)
 		return
 
 	default:

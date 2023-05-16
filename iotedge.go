@@ -89,7 +89,7 @@ func (s *IoTEdge) StartSensorServer() error {
 	http.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
 	http.HandleFunc(URIUploadData, s.UploadDataHandler)
 	http.HandleFunc(URISaveTimeseries, s.SaveTimeseries)
-	http.HandleFunc(URISensorConfigure, s.ConfigureSensor)
+	http.HandleFunc(URISensorConfigure, s.ConfSensor)
 	http.HandleFunc(URIDeviceConfigure, s.ConfigureDevice)
 	port := s.Port
 
@@ -112,7 +112,7 @@ func (s *IoTEdge) WriteToDatabase(data []timeseries.TimeseriesImportStruct) {
 		s.tsMutex.Lock()
 		if err := db.InsertTimeseries(ts, true); err != nil {
 			if err != nil {
-				log.Fatalf("failed to insert TS: %v", err)
+				log.Errorf("failed to insert TS: %v", err)
 			}
 
 		}

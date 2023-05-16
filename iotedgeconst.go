@@ -1,17 +1,19 @@
 package iotedge
 
 import (
+	"context"
+	"database/sql"
 	"sync"
 
 	timeseries "github.com/pat-rohn/timeseries"
 	"golang.org/x/sync/semaphore"
-	"gorm.io/gorm"
 )
 
 type IoTEdge struct {
 	Port           int
 	DatabaseConfig timeseries.DBConfig `json:"DbConfig"`
-	GormDB         *gorm.DB
+	DB             *sql.DB
+	ctx            context.Context
 	sem            *semaphore.Weighted
 	Timeseries     timeseries.DbHandler
 	tsMutex        sync.Mutex
@@ -54,16 +56,15 @@ type DeviceDesc struct {
 }
 
 type Sensor struct {
-	gorm.Model
+	ID       int
+	DeviceID int
 	Name     string
 	Offset   float32
-	DeviceID int
 }
 
 type Device struct {
-	gorm.Model
-	Name        string `gorm:"unique"`
-	Sensors     []Sensor
+	ID          int
+	Name        string
 	Interval    float32
 	Buffer      int
 	Description string

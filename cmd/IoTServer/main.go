@@ -105,11 +105,13 @@ func main() {
 			if err != nil {
 				return err
 			}
-			iotDevice, err := edge.GetDevice(args[0])
+			dev, err := edge.GetDevice(args[0])
 			if err != nil {
 				return err
 			}
-			if err = iotDevice.Configure(float32(interval), int(buffer), edge.GormDB); err != nil {
+			dev.Interval = float32(interval)
+			dev.Buffer = int(buffer)
+			if err = edge.Configure(dev); err != nil {
 				return err
 			}
 			return nil
@@ -126,7 +128,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			sensor := args[1]
+			sensorName := args[1]
 			edge := iotedge.New(iotedge.GetConfig())
 			err = edge.InitializeDB()
 			if err != nil {
@@ -136,7 +138,12 @@ func main() {
 			if err != nil {
 				return err
 			}
-			if err = iotDevice.ConfigureSensor(float32(offset), sensor, edge.GormDB); err != nil {
+			sensor := iotedge.Sensor{
+				Name:     sensorName,
+				Offset:   float32(offset),
+				DeviceID: iotDevice.ID,
+			}
+			if err = edge.ConfigureSensor(sensor); err != nil {
 				return err
 			}
 			return nil
