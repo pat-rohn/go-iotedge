@@ -166,7 +166,7 @@ func main() {
 
 func CreateTimeseriesTable() error {
 	iotConfig := iotedge.New(iotedge.GetConfig())
-	db := timeseries.New(iotConfig.DatabaseConfig)
+	db := timeseries.New(iotConfig.TimeseriesDBConfig)
 	defer db.CloseDatabase()
 	if err := db.OpenDatabase(); err != nil {
 		log.Error("failed to create DB: %v", err)

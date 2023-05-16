@@ -13,30 +13,42 @@ import (
 )
 
 type IoTConfig struct {
-	Port     int
-	MQTTPort int
-	DbConfig timeseries.DBConfig
+	Port               int
+	MQTTPort           int
+	DbConfig           timeseries.DBConfig
+	TimeseriesDBConfig timeseries.DBConfig
 }
 
 func New(iotConfig IoTConfig) IoTEdge {
 	logFields := log.Fields{"fnct": "New"}
 	log.WithFields(logFields).Tracef("Config %+v", iotConfig)
 	return IoTEdge{
-		Port:           iotConfig.Port,
-		DatabaseConfig: iotConfig.DbConfig,
-		sem:            semaphore.NewWeighted(1),
+		Port:               iotConfig.Port,
+		DeviceDBConfig:     iotConfig.DbConfig,
+		TimeseriesDBConfig: iotConfig.TimeseriesDBConfig,
+		sem:                semaphore.NewWeighted(1),
+		semTimeseries:      semaphore.NewWeighted(1),
 	}
 }
 
 func GetConfig() IoTConfig {
 	logFields := log.Fields{"fnct": "GetConfig"}
-	viper.SetDefault("DbConfig.Name", "plottydb")
-	viper.SetDefault("DbConfig.IPOrPath", "localhost")
-	viper.SetDefault("DbConfig.UsePostgres", true)
-	viper.SetDefault("DbConfig.User", "user")
-	viper.SetDefault("DbConfig.Password", "password")
-	viper.SetDefault("DbConfig.Port", 5432)
-	viper.SetDefault("DbConfig.TableName", "measurements1")
+	viper.SetDefault("DeviceDBConfig.Name", "config.db")
+	viper.SetDefault("DeviceDBConfig.IPOrPath", "./")
+	viper.SetDefault("DeviceDBConfig.UsePostgres", false)
+	viper.SetDefault("DeviceDBConfig.User", "user")
+	viper.SetDefault("DeviceDBConfig.Password", "password")
+	viper.SetDefault("DeviceDBConfig.Port", 5432)
+	viper.SetDefault("DeviceDBConfig.TableName", "configs")
+
+	viper.SetDefault("TimeseriesDBConfig.Name", "timeseries.db")
+	viper.SetDefault("TimeseriesDBConfig.IPOrPath", "./")
+	viper.SetDefault("TimeseriesDBConfig.UsePostgres", false)
+	viper.SetDefault("TimeseriesDBConfig.User", "user")
+	viper.SetDefault("TimeseriesDBConfig.Password", "password")
+	viper.SetDefault("TimeseriesDBConfig.Port", 5432)
+	viper.SetDefault("TimeseriesDBConfig.TableName", "timeseries")
+
 	viper.SetDefault("Port", 3004)
 	viper.SetDefault("MQTTPort", 1883)
 
@@ -79,18 +91,20 @@ func (s *IoTEdge) StartSensorServer() error {
 	if err := s.InitializeDB(); err != nil {
 		return err
 	}
-	tsHandler := timeseries.New(s.DatabaseConfig)
+	tsHandler := timeseries.New(s.TimeseriesDBConfig)
 	if err := tsHandler.CreateTimeseriesTable(); err != nil {
 		log.Errorf("failed to create table: %v", err)
 		return err
 	}
 	s.Timeseries = tsHandler
-	http.HandleFunc(URIInitDevice, s.InitDevice)
-	http.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
 	http.HandleFunc(URIUploadData, s.UploadDataHandler)
 	http.HandleFunc(URISaveTimeseries, s.SaveTimeseries)
+
+	http.HandleFunc(URIInitDevice, s.InitDevice)
+	http.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
 	http.HandleFunc(URISensorConfigure, s.ConfSensor)
 	http.HandleFunc(URIDeviceConfigure, s.ConfigureDevice)
+
 	port := s.Port
 
 	fmt.Printf("Listen on port: %v\n", port)
@@ -102,20 +116,4 @@ func (s *IoTEdge) StartSensorServer() error {
 		return err
 	}
 	return nil
-}
-
-func (s *IoTEdge) WriteToDatabase(data []timeseries.TimeseriesImportStruct) {
-	db := timeseries.New(s.DatabaseConfig)
-
-	for _, ts := range data {
-		log.Infof("insert %v", ts.Tag)
-		s.tsMutex.Lock()
-		if err := db.InsertTimeseries(ts, true); err != nil {
-			if err != nil {
-				log.Errorf("failed to insert TS: %v", err)
-			}
-
-		}
-		s.tsMutex.Unlock()
-	}
 }

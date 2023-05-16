@@ -5,22 +5,23 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
 func (e *IoTEdge) InitializeDB() error {
-	logFields := log.Fields{"fnct": "InitializeDB", "name": e.DatabaseConfig.Name}
+	logFields := log.Fields{"fnct": "InitializeDB", "name": e.DeviceDBConfig.Name}
 	log.WithFields(logFields).Infoln("init")
-	if e.DatabaseConfig.UsePostgres {
+	if e.DeviceDBConfig.UsePostgres {
 		psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
 			"password=%s dbname=%s sslmode=disable",
-			e.DatabaseConfig.IPOrPath,
-			e.DatabaseConfig.Port,
-			e.DatabaseConfig.User,
-			e.DatabaseConfig.Password,
-			e.DatabaseConfig.Name)
+			e.DeviceDBConfig.IPOrPath,
+			e.DeviceDBConfig.Port,
+			e.DeviceDBConfig.User,
+			e.DeviceDBConfig.Password,
+			e.DeviceDBConfig.Name)
 		log.WithFields(logFields).Tracef(
 			"Open database: %v", psqlInfo)
 		database, err := sql.Open("postgres", psqlInfo)
@@ -31,11 +32,11 @@ func (e *IoTEdge) InitializeDB() error {
 		}
 		e.DB = database
 	} else {
-		if len(e.DatabaseConfig.IPOrPath) > 0 {
-			log.WithFields(logFields).Tracef("Create Folder: %v", e.DatabaseConfig.IPOrPath)
-			if _, err := os.Stat(e.DatabaseConfig.IPOrPath); err != nil {
+		if len(e.DeviceDBConfig.IPOrPath) > 0 {
+			log.WithFields(logFields).Tracef("Create Folder: %v", e.DeviceDBConfig.IPOrPath)
+			if _, err := os.Stat(e.DeviceDBConfig.IPOrPath); err != nil {
 				if os.IsNotExist(err) {
-					err := os.MkdirAll(e.DatabaseConfig.IPOrPath, 0644)
+					err := os.MkdirAll(e.DeviceDBConfig.IPOrPath, 0644)
 					if err != nil {
 						log.WithFields(logFields).Errorf("Failed to create path %v", err)
 					}
@@ -43,16 +44,15 @@ func (e *IoTEdge) InitializeDB() error {
 			}
 		}
 
-		database, err := sql.Open("sqlite", e.DatabaseConfig.IPOrPath+e.DatabaseConfig.Name)
+		database, err := sql.Open("sqlite", e.DeviceDBConfig.IPOrPath+e.DeviceDBConfig.Name)
 		if err != nil {
 			log.WithFields(logFields).Errorf("Failed to open db %v", err)
 			return fmt.Errorf("failed to open db %v", err)
 		}
 		e.DB = database
 	}
-	e.ctx = context.Background()
 	log.WithFields(logFields).Infof("Opened database with name %s ",
-		e.DatabaseConfig.Name)
+		e.DeviceDBConfig.Name)
 	err := e.DB.Ping()
 	if err != nil {
 		panic(err.Error())
@@ -123,13 +123,14 @@ func (e *IoTEdge) Configure(dev Device) error {
 	logFields := log.Fields{"fnct": "ConfigureDevice"}
 	log.WithFields(logFields).Infof("Configure device %s with interval/buffer: %v/%v ",
 		dev.Name, dev.Interval, dev.Buffer)
-
-	tx, err := e.DB.BeginTx(e.ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Millisecond)
+	defer cancel()
+	tx, err := e.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		log.WithFields(logFields).Error(err)
 		return err
 	}
-	_, execErr := tx.ExecContext(e.ctx, "UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?", dev.Description, dev.Buffer, dev.Interval, dev.ID)
+	_, execErr := tx.ExecContext(ctx, "UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?", dev.Description, dev.Buffer, dev.Interval, dev.ID)
 	if execErr != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			log.WithFields(logFields).Errorf("update failed: %v, unable to rollback: %v\n", execErr, rollbackErr)
@@ -149,13 +150,14 @@ func (e *IoTEdge) ConfigureSensor(sensor Sensor) error {
 	logFields := log.Fields{"fnct": "ConfigureSensor"}
 	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ",
 		sensor.Name, sensor.Offset)
-
-	tx, err := e.DB.BeginTx(e.ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Millisecond)
+	defer cancel()
+	tx, err := e.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		log.WithFields(logFields).Error(err)
 		return err
 	}
-	_, execErr := tx.ExecContext(e.ctx, "UPDATE sensors SET name = ? , offset = ?  WHERE deviceid = ?", sensor.Name, sensor.Offset, sensor.DeviceID)
+	_, execErr := tx.ExecContext(ctx, "UPDATE sensors SET name = ? , offset = ?  WHERE deviceid = ?", sensor.Name, sensor.Offset, sensor.DeviceID)
 	if execErr != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			log.WithFields(logFields).Errorf("update failed: %v, unable to rollback: %v\n", execErr, rollbackErr)

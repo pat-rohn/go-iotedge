@@ -1,32 +1,30 @@
 package iotedge
 
 import (
-	"context"
 	"database/sql"
-	"sync"
 
 	timeseries "github.com/pat-rohn/timeseries"
 	"golang.org/x/sync/semaphore"
 )
 
 type IoTEdge struct {
-	Port           int
-	DatabaseConfig timeseries.DBConfig `json:"DbConfig"`
-	DB             *sql.DB
-	ctx            context.Context
-	sem            *semaphore.Weighted
-	Timeseries     timeseries.DbHandler
-	tsMutex        sync.Mutex
+	Port               int
+	DeviceDBConfig     timeseries.DBConfig
+	TimeseriesDBConfig timeseries.DBConfig
+	DB                 *sql.DB
+	sem                *semaphore.Weighted
+	semTimeseries      *semaphore.Weighted
+	Timeseries         timeseries.DbHandler
 }
 
 const (
 	HTTPPort           int    = 3004
 	URIInitDevice      string = "/init-device"
 	URIUpdateSensor    string = "/update-sensor"
-	URIUploadData      string = "/upload-data"
-	URISaveTimeseries  string = "/timeseries/save"
 	URIDeviceConfigure string = "/device/configure"
 	URISensorConfigure string = "/sensor/configure"
+	URIUploadData      string = "/upload-data"
+	URISaveTimeseries  string = "/timeseries/save"
 )
 
 type Output struct {

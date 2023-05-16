@@ -1,17 +1,19 @@
 package iotedge
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
 func (e *IoTEdge) createTables() error {
-	logFields := log.Fields{"fnct": "CreateTables", "name": e.DatabaseConfig.Name}
+	logFields := log.Fields{"fnct": "CreateTables", "name": e.DeviceDBConfig.Name}
 	log.WithFields(logFields).Infoln("init")
 	idStr := "id integer primary key autoincrement"
-	if e.DatabaseConfig.UsePostgres {
+	if e.DeviceDBConfig.UsePostgres {
 		idStr = "id  			SERIAL PRIMARY KEY UNIQUE"
 	}
 	sqlStr := `CREATE TABLE IF NOT EXISTS devices (
@@ -114,7 +116,7 @@ func (e *IoTEdge) GetDevice(name string) (Device, error) {
 }
 
 func (e *IoTEdge) executeQuery(sqlStr string) error {
-	logFields := log.Fields{"fnct": "executeQuery", "name": e.DatabaseConfig.Name}
+	logFields := log.Fields{"fnct": "executeQuery", "name": e.DeviceDBConfig.Name}
 
 	if len(sqlStr) > 2000 {
 		log.WithFields(logFields).Tracef(
@@ -125,7 +127,8 @@ func (e *IoTEdge) executeQuery(sqlStr string) error {
 		log.WithFields(logFields).Tracef(
 			"full query: %s\n", sqlStr)
 	}
-
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Millisecond)
+	defer cancel()
 	tx, err := e.DB.Begin()
 	if err != nil {
 		log.WithFields(logFields).Errorf("%v", err)
@@ -137,7 +140,7 @@ func (e *IoTEdge) executeQuery(sqlStr string) error {
 		return fmt.Errorf("failed to prepare: %v", err)
 	}
 
-	_, err = stmt.ExecContext(e.ctx)
+	_, err = stmt.ExecContext(ctx)
 	if err != nil {
 		log.WithFields(logFields).Errorf("Failed to execute: %v", err)
 		return err
@@ -155,12 +158,14 @@ func (e *IoTEdge) executeQuery(sqlStr string) error {
 func (e *IoTEdge) insertDevice(device Device) error {
 	logFields := log.Fields{"fnct": "insertDevice", "device": device.Name}
 	log.WithFields(logFields).Infof("%s", device.Name)
-	tx, err := e.DB.BeginTx(e.ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Millisecond)
+	defer cancel()
+	tx, err := e.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		log.WithFields(logFields).Error(err)
 		return err
 	}
-	_, execErr := tx.ExecContext(e.ctx, "INSERT INTO devices (name) VALUES (?)", device.Name)
+	_, execErr := tx.ExecContext(ctx, "INSERT INTO devices (name) VALUES (?)", device.Name)
 	if execErr != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			log.WithFields(logFields).Errorf("insert failed: %v, unable to rollback: %v\n", execErr, rollbackErr)
@@ -178,12 +183,14 @@ func (e *IoTEdge) insertDevice(device Device) error {
 func (e *IoTEdge) insertSensor(sensor Sensor) error {
 	logFields := log.Fields{"fnct": "insertSensor", "sensor": sensor.Name}
 	log.WithFields(logFields).Infof("%s", sensor.Name)
-	tx, err := e.DB.BeginTx(e.ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Millisecond)
+	defer cancel()
+	tx, err := e.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		log.WithFields(logFields).Error(err)
 		return err
 	}
-	_, execErr := tx.ExecContext(e.ctx, "INSERT INTO sensors (name,deviceid) VALUES (?,?)", sensor.Name, sensor.DeviceID)
+	_, execErr := tx.ExecContext(ctx, "INSERT INTO sensors (name,deviceid) VALUES (?,?)", sensor.Name, sensor.DeviceID)
 	if execErr != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			log.WithFields(logFields).Errorf("insert failed: %v, unable to rollback: %v\n", execErr, rollbackErr)
