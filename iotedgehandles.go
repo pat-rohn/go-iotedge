@@ -219,7 +219,7 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *IoTEdge) ConfSensor(w http.ResponseWriter, r *http.Request) {
 
-	logFields := log.Fields{"fnct": "ConfigureDevice"}
+	logFields := log.Fields{"fnct": "ConfSensor"}
 	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
 	SetHeaders(w, r.Header.Get("Origin"))
 	switch r.Method {

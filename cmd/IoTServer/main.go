@@ -182,7 +182,7 @@ func CreateTimeseriesTable() error {
 func startServer() error {
 	config := iotedge.GetConfig()
 	iot := iotedge.New(config)
-	go iotedge.StartMQTTBroker(config.MQTTPort, config.DbConfig)
+	go iotedge.StartMQTTBroker(config.MQTTPort, config.TimeseriesDBConfig)
 	return iot.StartSensorServer()
 }
 

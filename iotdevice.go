@@ -120,8 +120,8 @@ func (e *IoTEdge) GetSensors(deviceID int) ([]Sensor, error) {
 }
 
 func (e *IoTEdge) Configure(dev Device) error {
-	logFields := log.Fields{"fnct": "ConfigureDevice"}
-	log.WithFields(logFields).Infof("Configure device %s with interval/buffer: %v/%v ",
+	logFields := log.Fields{"fnct": "Configure", "device": dev.Name}
+	log.WithFields(logFields).Infof("Configure device '%s' with interval/buffer: %v/%v ",
 		dev.Name, dev.Interval, dev.Buffer)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Millisecond)
 	defer cancel()
@@ -130,13 +130,23 @@ func (e *IoTEdge) Configure(dev Device) error {
 		log.WithFields(logFields).Error(err)
 		return err
 	}
-	_, execErr := tx.ExecContext(ctx, "UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?", dev.Description, dev.Buffer, dev.Interval, dev.ID)
+	sqlRes, execErr := tx.ExecContext(ctx, "UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?", dev.Description, dev.Buffer, dev.Interval, dev.ID)
 	if execErr != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			log.WithFields(logFields).Errorf("update failed: %v, unable to rollback: %v\n", execErr, rollbackErr)
 			return err
 		}
 		log.WithFields(logFields).Errorf("update failed: %v", execErr)
+	}
+	rowsAffected, err := sqlRes.RowsAffected()
+	log.WithFields(logFields).Infof("Rows affected %d", rowsAffected)
+	if rowsAffected != 1 {
+		log.WithFields(logFields).Errorf("Rows affected  not 1 (%d)", rowsAffected)
+		return fmt.Errorf("rows affected  not 1 (%d)", rowsAffected)
+	}
+	if err != nil {
+		log.WithFields(logFields).Errorf("exec failed: %v)", err)
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		log.WithFields(logFields).Error(err)

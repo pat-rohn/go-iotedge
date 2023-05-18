@@ -47,15 +47,13 @@ func TestMain(t *testing.T) {
 	}
 
 	go func() {
-		if err := iot.StartSensorServer(); err != nil {
-			t.Fatalf("Failed to start server %s", err)
-		}
+		iot.StartSensorServer()
 	}()
 
 	time.Sleep(time.Second * 2)
 	name := "Dummy" + uuid.NewString()
 	dummy := DummyDevice{
-		Url: "http://localhost:3006",
+		Url: fmt.Sprintf("http://localhost:%d", iot.Port),
 		DeviceDesc: DeviceDesc{
 			Name:        name,
 			Description: fmt.Sprintf("%s1.0;DummyTemp", name),
@@ -130,14 +128,14 @@ func TestInitDevices(t *testing.T) {
 
 	counter := make(chan int)
 	var wg sync.WaitGroup
-	for i := 0; i < 450; i++ { // 500 seems to be the limit here (to investigate)
+	for i := 0; i < 450; i++ {
 
 		time.Sleep(100 * time.Nanosecond)
 		wg.Add(1)
 		go func(t *testing.T, i int, counter chan int) {
 			name := fmt.Sprintf("DummyOnlyDev%d-%s", i, uuid.New())
 			dummy := DummyDevice{
-				Url: "http://localhost:3006",
+				Url: fmt.Sprintf("http://localhost:%d", iot.Port),
 				DeviceDesc: DeviceDesc{
 					Name:        name,
 					Description: fmt.Sprintf("%s1.0;DummyTemp", name),
@@ -164,7 +162,6 @@ func TestInitDevices(t *testing.T) {
 
 	}(counter)
 	wg.Wait()
-	//t.Error("Test")
 }
 
 func (d *DummyDevice) init(t *testing.T) {

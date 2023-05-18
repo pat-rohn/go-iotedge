@@ -91,28 +91,30 @@ func (e *IoTEdge) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 }
 
 func (e *IoTEdge) GetDevice(name string) (Device, error) {
-	logFields := log.Fields{"fnct": "GetDevice"}
-	log.WithFields(logFields).Infof("%s", name)
+	logFields := log.Fields{"fnct": "GetDevice", "name": name}
+	log.WithFields(logFields).Infof("Find device with name %v", name)
 	rows, err := e.DB.Query("SELECT * FROM devices WHERE name = ?", name)
 	if err != nil {
 		return Device{}, err
 	}
 	defer rows.Close()
+
 	var dev Device
-	hasDevice := rows.Next()
-	if !hasDevice {
-		return Device{}, fmt.Errorf("device %s not found", name)
-	}
 	for rows.Next() {
-		if err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Buffer, &dev.Interval); err != nil {
-			return dev, err
+		err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Buffer, &dev.Interval)
+		if err != nil {
+			log.WithFields(logFields).Errorf("Failed to scan device %v", err)
+			return dev, fmt.Errorf("failed to scan device %v", err)
 		}
+		log.WithFields(logFields).Infof("Device found %+v", dev)
+		return dev, nil
 	}
 	if err = rows.Err(); err != nil {
 		return dev, err
 	}
 
-	return dev, nil
+	log.WithFields(logFields).Errorf("Device '%s' not found", name)
+	return dev, fmt.Errorf("device not found")
 }
 
 func (e *IoTEdge) executeQuery(sqlStr string) error {
