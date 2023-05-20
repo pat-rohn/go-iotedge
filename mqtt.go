@@ -199,7 +199,7 @@ func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStr
 	defer dbh.CloseDatabase()
 	for _, tsVal := range data {
 		timeTillNextIncome := time.Until(nextUploadTime)
-		log.WithFields(logFields).Warnf("timeTillNextIncome: %v", timeTillNextIncome.String())
+		log.WithFields(logFields).Tracef("timeTillNextIncome: %v", timeTillNextIncome.String())
 		if timeTillNextIncome <= time.Second*2 {
 			log.WithFields(logFields).Errorln("Too much data, abort")
 			break

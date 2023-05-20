@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -22,13 +21,23 @@ type IoTConfig struct {
 func New(iotConfig IoTConfig) IoTEdge {
 	logFields := log.Fields{"fnct": "New"}
 	log.WithFields(logFields).Tracef("Config %+v", iotConfig)
-	return IoTEdge{
+	s := IoTEdge{
 		Port:               iotConfig.Port,
 		DeviceDBConfig:     iotConfig.DbConfig,
 		TimeseriesDBConfig: iotConfig.TimeseriesDBConfig,
 		sem:                semaphore.NewWeighted(1),
 		semTimeseries:      semaphore.NewWeighted(1),
 	}
+	if err := s.InitializeDB(); err != nil {
+		log.Fatalf("failed to create table: %v", err)
+	}
+	tsHandler := timeseries.New(iotConfig.TimeseriesDBConfig)
+
+	if err := tsHandler.CreateTimeseriesTable(); err != nil {
+		log.Fatalf("failed to create table: %v", err)
+	}
+	s.Timeseries = tsHandler
+	return s
 }
 
 func GetConfig() IoTConfig {
@@ -88,15 +97,7 @@ func GetConfig() IoTConfig {
 
 func (s *IoTEdge) StartSensorServer() error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
-	if err := s.InitializeDB(); err != nil {
-		return err
-	}
-	tsHandler := timeseries.New(s.TimeseriesDBConfig)
-	if err := tsHandler.CreateTimeseriesTable(); err != nil {
-		log.Errorf("failed to create table: %v", err)
-		return err
-	}
-	s.Timeseries = tsHandler
+
 	http.HandleFunc(URIUploadData, s.UploadDataHandler)
 	http.HandleFunc(URISaveTimeseries, s.SaveTimeseries)
 

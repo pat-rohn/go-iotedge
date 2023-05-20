@@ -292,10 +292,10 @@ func TestMQTT(t *testing.T) {
 	defer f.Close()
 	log.SetOutput(f)
 	log.SetLevel(log.WarnLevel)
-	dbConfig := GetConfig().TimeseriesDBConfig
-
-	go StartMQTTBroker(1884, dbConfig)
-	time.Sleep(time.Second * 5)
+	config := GetConfig()
+	New(config)
+	go StartMQTTBroker(1884, config.TimeseriesDBConfig)
+	time.Sleep(time.Second * 2)
 	for i := 0; i < 5000; i++ {
 		time.Sleep(time.Millisecond * 2)
 		fmt.Printf("<-- %d ", i)
