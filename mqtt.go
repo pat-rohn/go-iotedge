@@ -44,7 +44,7 @@ func (h *TimeseriesHandler) handleMessage(client mqtt.Client, msg mqtt.Message) 
 	logFields := log.Fields{"fnct": "handleMessage"}
 
 	go h.processData(msg.Topic(), string(payload))
-	log.WithFields(logFields).Tracef("Connection lost: %s", payload)
+	log.WithFields(logFields).Tracef("Message received: %s", payload)
 	//fmt.Printf("TestHandler handleMessage %s", string(payload))
 
 }
@@ -120,7 +120,8 @@ func sub(client mqtt.Client, topic string) {
 }
 
 func StartMQTTBroker(port int, dbConfig timeseries.DBConfig) {
-	log.Infof("start mqtt broker on port %d", port)
+	logFields := log.Fields{"tech": "mqtt", "fnct": "StartMQTTBroker"}
+	log.WithFields(logFields).Infof("start mqtt broker on port %d", port)
 	fmt.Printf("start mqtt broker on port %d\n", port)
 	handler := TimeseriesHandler{
 		data:      []*timeseries.TimeseriesImportStruct{},
@@ -136,12 +137,12 @@ func StartMQTTBroker(port int, dbConfig timeseries.DBConfig) {
 
 		err := mqttEdge.MQTTserver.AddListener(tcp, nil)
 		if err != nil {
-			log.Fatal(err)
+			log.WithFields(logFields).Fatal(err)
 		}
 
 		err = mqttEdge.MQTTserver.Serve()
 		if err != nil {
-			log.Fatal(err)
+			log.WithFields(logFields).Fatal(err)
 		}
 	}()
 
@@ -182,7 +183,7 @@ func StartMQTTBroker(port int, dbConfig timeseries.DBConfig) {
 			log.Errorf("Failed to get and clear data %v", err)
 			continue
 		}
-		log.Infof("Got data %d", len(data))
+		log.WithFields(logFields).Infof("Got data %d", len(data))
 
 		insertData(&dbh, data, nextUploadTime)
 
@@ -191,31 +192,32 @@ func StartMQTTBroker(port int, dbConfig timeseries.DBConfig) {
 }
 
 func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStruct, nextUploadTime time.Time) error {
+	logFields := log.Fields{"tech": "mqtt", "fnct": "insertData"}
 	if err := dbh.OpenDatabase(); err != nil {
 		return err
 	}
 	defer dbh.CloseDatabase()
 	for _, tsVal := range data {
 		timeTillNextIncome := time.Until(nextUploadTime)
-		log.Warnf("timeTillNextIncome: %v", timeTillNextIncome.String())
+		log.WithFields(logFields).Tracef("timeTillNextIncome: %v", timeTillNextIncome.String())
 		if timeTillNextIncome <= time.Second*2 {
-			log.Errorln("Too much data, abort")
+			log.WithFields(logFields).Errorln("Too much data, abort")
 			break
 
 		}
-		log.Tracef("insert %d/%d entries for %s ",
+		log.WithFields(logFields).Tracef("insert %d/%d entries for %s ",
 			len(tsVal.Timestamps), len(tsVal.Values), tsVal.Tag)
 		timeOut := time.Now().Add(time.Second * 2)
 		err := dbh.InsertTimeseries(tsVal, true)
 		for time.Now().Before(timeOut) && err != nil {
 
 			if err != nil {
-				log.Warnf("Failed to insert values into database: %v", err)
+				log.WithFields(logFields).Warnf("Failed to insert values into database: %v", err)
 				time.Sleep(time.Millisecond * 50)
 			}
 		}
 		if err != nil {
-			log.Errorf("Failed to insert values into database: %v", err)
+			log.WithFields(logFields).Errorf("Failed to insert values into database: %v", err)
 		}
 
 	}

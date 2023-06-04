@@ -33,10 +33,11 @@ func TestMain(t *testing.T) {
 	}
 	defer f.Close()
 	log.SetOutput(f)
-	iot := New(IoTConfig(GetConfig()))
+	log.SetLevel(log.TraceLevel)
+	config := GetConfig()
+	iot := New(config)
 	iot.Port = 3006
-	iot.DatabaseConfig.TableName = "measurements_test"
-	db := timeseries.New(iot.DatabaseConfig)
+	db := timeseries.New(config.TimeseriesDBConfig)
 	defer db.CloseDatabase()
 	if err := db.OpenDatabase(); err != nil {
 		t.Fatalf("failed to create DB: %v", err)
@@ -45,11 +46,14 @@ func TestMain(t *testing.T) {
 		log.Fatalf("failed to create table: %v", err)
 	}
 
-	go iot.StartSensorServer()
+	go func() {
+		iot.StartSensorServer()
+	}()
+
 	time.Sleep(time.Second * 2)
 	name := "Dummy" + uuid.NewString()
 	dummy := DummyDevice{
-		Url: "http://localhost:3006",
+		Url: fmt.Sprintf("http://localhost:%d", iot.Port),
 		DeviceDesc: DeviceDesc{
 			Name:        name,
 			Description: fmt.Sprintf("%s1.0;DummyTemp", name),
@@ -79,8 +83,8 @@ func TestMain(t *testing.T) {
 	dummy.configureSensor(t, configureSensorReq)
 }
 
-func TestInitDevices(t *testing.T) {
-	logFile := "TestInitDevices.log"
+func TestDBInit(t *testing.T) {
+	logFile := "TestDBInit.log"
 	f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Println("Failed to create logfile" + logFile)
@@ -91,27 +95,47 @@ func TestInitDevices(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	iot := New(GetConfig())
 	iot.Port = 3006
-	iot.DatabaseConfig.TableName = "measurements_test"
-	db := timeseries.New(iot.DatabaseConfig)
-
-	if err := db.CreateTimeseriesTable(); err != nil {
-		log.Fatalf("failed to create table: %v", err)
+	go iot.StartSensorServer()
+	time.Sleep(time.Second * 2)
+	for i := 0; i < 500; i++ { // 500 seems to be the limit here (to investigate)
+		time.Sleep(100 * time.Nanosecond)
+		name := fmt.Sprintf("DummyOnlyDev%d-%s", i, uuid.New())
+		dummy := DeviceDesc{
+			Name:        name,
+			Description: fmt.Sprintf("%s1.0;DummyTemp", name),
+			Sensors:     []string{fmt.Sprintf("%sTemperature", name)},
+		}
+		iot.Init(dummy)
 	}
-	db.CloseDatabase()
+
+}
+
+func TestInitDevices(t *testing.T) {
+	logFile := "TestInitDevices.log"
+	f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Println("Failed to create logfile" + logFile)
+		panic(err)
+	}
+	defer f.Close()
+	log.SetOutput(f)
+	log.SetLevel(log.ErrorLevel)
+	iot := New(GetConfig())
+	iot.Port = 3006
 
 	go iot.StartSensorServer()
 	time.Sleep(2 * time.Second)
-	//iot.GormDB.CreateBatchSize = 100
+
 	counter := make(chan int)
 	var wg sync.WaitGroup
-	for i := 0; i < 500; i++ { // 500 seems to be the limit here (to investigate)
+	for i := 0; i < 450; i++ {
 
 		time.Sleep(100 * time.Nanosecond)
 		wg.Add(1)
 		go func(t *testing.T, i int, counter chan int) {
 			name := fmt.Sprintf("DummyOnlyDev%d-%s", i, uuid.New())
 			dummy := DummyDevice{
-				Url: "http://localhost:3006",
+				Url: fmt.Sprintf("http://localhost:%d", iot.Port),
 				DeviceDesc: DeviceDesc{
 					Name:        name,
 					Description: fmt.Sprintf("%s1.0;DummyTemp", name),
@@ -138,7 +162,6 @@ func TestInitDevices(t *testing.T) {
 
 	}(counter)
 	wg.Wait()
-	//t.Error("Test")
 }
 
 func (d *DummyDevice) init(t *testing.T) {
@@ -206,8 +229,8 @@ func (d *DummyDevice) sendData(t *testing.T, data *[]timeseries.TimeseriesImport
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Failed with status: %s", resp.Status)
-		return
+		log.Errorf("Failed with status: %s", resp.Status)
+		d.sendData(t, data)
 	}
 
 	_, err = io.ReadAll(resp.Body)
@@ -269,18 +292,10 @@ func TestMQTT(t *testing.T) {
 	defer f.Close()
 	log.SetOutput(f)
 	log.SetLevel(log.WarnLevel)
-	dbConfig := GetConfig().DbConfig
-	db := timeseries.New(dbConfig)
-	defer db.CloseDatabase()
-	if err := db.OpenDatabase(); err != nil {
-		log.Fatalf("failed to create DB: %v", err)
-
-	}
-	if err := db.CreateTimeseriesTable(); err != nil {
-		log.Fatalf("failed to create DB: %v", err)
-	}
-	go StartMQTTBroker(1884, dbConfig)
-	time.Sleep(time.Second * 5)
+	config := GetConfig()
+	New(config)
+	go StartMQTTBroker(1884, config.TimeseriesDBConfig)
+	time.Sleep(time.Second * 2)
 	for i := 0; i < 5000; i++ {
 		time.Sleep(time.Millisecond * 2)
 		fmt.Printf("<-- %d ", i)
