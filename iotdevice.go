@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	_ "modernc.org/sqlite"
+
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )

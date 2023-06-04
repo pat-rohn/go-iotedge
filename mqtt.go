@@ -44,7 +44,7 @@ func (h *TimeseriesHandler) handleMessage(client mqtt.Client, msg mqtt.Message) 
 	logFields := log.Fields{"fnct": "handleMessage"}
 
 	go h.processData(msg.Topic(), string(payload))
-	log.WithFields(logFields).Tracef("Connection lost: %s", payload)
+	log.WithFields(logFields).Tracef("Message received: %s", payload)
 	//fmt.Printf("TestHandler handleMessage %s", string(payload))
 
 }
