@@ -30,10 +30,8 @@ func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		defer s.semTimeseries.Release(1)
-
-		//dbh := timeseries.New(s.DatabaseConfig)
 		db := timeseries.New(s.TimeseriesDBConfig)
-
+		defer db.CloseDatabase()
 		for _, ts := range data {
 			log.Infof("insert %v", ts.Tag)
 
