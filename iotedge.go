@@ -12,10 +12,11 @@ import (
 )
 
 type IoTConfig struct {
-	Port               int
-	MQTTPort           int
-	DbConfig           timeseries.DBConfig
-	TimeseriesDBConfig timeseries.DBConfig
+	Port                int
+	MQTTPort            int
+	MQTTRedirectAddress string
+	DbConfig            timeseries.DBConfig
+	TimeseriesDBConfig  timeseries.DBConfig
 }
 
 func New(iotConfig IoTConfig) IoTEdge {
@@ -60,6 +61,7 @@ func GetConfig() IoTConfig {
 
 	viper.SetDefault("Port", 3004)
 	viper.SetDefault("MQTTPort", 1883)
+	viper.SetDefault("MQTTRedirectAddress", "")
 
 	viper.SetConfigName("iot")
 	viper.SetConfigType("json")

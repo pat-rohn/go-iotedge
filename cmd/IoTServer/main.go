@@ -67,7 +67,7 @@ func main() {
 				SetLogfile(name + "-mqtt")
 			}
 			conf := iotedge.GetConfig()
-			iotedge.StartMQTTBroker(conf.MQTTPort, conf.DbConfig)
+			iotedge.StartMQTTBroker(conf.MQTTPort, conf)
 
 			return nil
 		},
@@ -169,11 +169,11 @@ func CreateTimeseriesTable() error {
 	db := timeseries.New(iotConfig.TimeseriesDBConfig)
 	defer db.CloseDatabase()
 	if err := db.OpenDatabase(); err != nil {
-		log.Error("failed to create DB: %v", err)
+		log.Errorf("failed to create DB: %v", err)
 		return err
 	}
 	if err := db.CreateTimeseriesTable(); err != nil {
-		log.Error("failed to create DB: %v", err)
+		log.Errorf("failed to create DB: %v", err)
 		return err
 	}
 	return nil
@@ -182,7 +182,7 @@ func CreateTimeseriesTable() error {
 func startServer() error {
 	config := iotedge.GetConfig()
 	iot := iotedge.New(config)
-	go iotedge.StartMQTTBroker(config.MQTTPort, config.TimeseriesDBConfig)
+	go iotedge.StartMQTTBroker(config.MQTTPort, config)
 	return iot.StartSensorServer()
 }
 

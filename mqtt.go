@@ -1,7 +1,11 @@
 package iotedge
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -119,7 +123,8 @@ func sub(client mqtt.Client, topic string) {
 	}
 }
 
-func StartMQTTBroker(port int, dbConfig timeseries.DBConfig) {
+func StartMQTTBroker(port int, config IoTConfig) {
+	dbConfig := config.DbConfig
 	logFields := log.Fields{"tech": "mqtt", "fnct": "StartMQTTBroker"}
 	log.WithFields(logFields).Infof("start mqtt broker on port %d", port)
 	fmt.Printf("start mqtt broker on port %d\n", port)
@@ -185,7 +190,12 @@ func StartMQTTBroker(port int, dbConfig timeseries.DBConfig) {
 		}
 		log.WithFields(logFields).Infof("Got data %d", len(data))
 
-		insertData(&dbh, data, nextUploadTime)
+		if len(config.MQTTRedirectAddress) <= 0 {
+			insertData(&dbh, data, nextUploadTime)
+		} else {
+			log.WithFields(logFields).Infof("Redirect data to %s", config.MQTTRedirectAddress)
+			go sendData(&data, config.MQTTRedirectAddress)
+		}
 
 		time.Sleep(time.Second * 5)
 	}
@@ -208,18 +218,16 @@ func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStr
 		log.WithFields(logFields).Tracef("insert %d/%d entries for %s ",
 			len(tsVal.Timestamps), len(tsVal.Values), tsVal.Tag)
 		timeOut := time.Now().Add(time.Second * 2)
-		err := dbh.InsertTimeseries(tsVal, true)
-		for time.Now().Before(timeOut) && err != nil {
 
+		for time.Now().Before(timeOut) {
+			err := dbh.InsertTimeseries(tsVal, true)
 			if err != nil {
 				log.WithFields(logFields).Warnf("Failed to insert values into database: %v", err)
 				time.Sleep(time.Millisecond * 50)
+			} else {
+				break
 			}
 		}
-		if err != nil {
-			log.WithFields(logFields).Errorf("Failed to insert values into database: %v", err)
-		}
-
 	}
 	return nil
 }
@@ -232,4 +240,35 @@ func publishPing(client mqtt.Client, topic string) {
 		//time.Sleep(time.Millisecond * 100)
 		time.Sleep(time.Second * 30)
 	}
+}
+
+func sendData(data *[]timeseries.TimeseriesImportStruct, url string) error {
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+	//fmt.Printf(string(jsonData))
+	client := http.Client{
+		Timeout: 5 * time.Second,
+	}
+	resp, err := client.Post(url+URISaveTimeseries, "application/json",
+		bytes.NewBuffer(jsonData))
+
+	if err != nil {
+		log.Errorf("Failed to send data: %v", err)
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Errorf("Failed with status: %s", resp.Status)
+		return fmt.Errorf("failed with status: %s", resp.Status)
+	}
+
+	respStr, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error(err)
+	}
+	log.Info(string(respStr))
+	defer resp.Body.Close()
+	return nil
 }

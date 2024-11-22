@@ -294,7 +294,7 @@ func TestMQTT(t *testing.T) {
 	log.SetLevel(log.WarnLevel)
 	config := GetConfig()
 	New(config)
-	go StartMQTTBroker(1884, config.TimeseriesDBConfig)
+	go StartMQTTBroker(1884, config)
 	time.Sleep(time.Second * 2)
 	for i := 0; i < 5000; i++ {
 		time.Sleep(time.Millisecond * 2)
