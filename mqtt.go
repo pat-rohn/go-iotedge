@@ -176,7 +176,7 @@ func StartMQTTBroker(port int, config IoTConfig) {
 	sub(databaseClient, "+/data")
 	go publishPing(databaseClient, "/server/ping/data")
 
-	nextUploadTime := time.Now().Add(time.Second * 30)
+	nextUploadTime := time.Now().Add(time.Second * time.Duration(config.UploadInterval))
 	dbh := timeseries.DBHandler(dbConfig)
 	for {
 		dur := time.Until(nextUploadTime)

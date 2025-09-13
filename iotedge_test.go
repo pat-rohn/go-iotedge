@@ -7,7 +7,6 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -25,14 +24,23 @@ type DummyDevice struct {
 }
 
 func TestAutomated(t *testing.T) {
+	log.SetLevel(log.FatalLevel)
+	startTime := time.Now()
+	defer func() {
+		fmt.Printf("Finished after %s\n", time.Since(startTime).String())
+	}()
+
 	testMain(t)
 	testDBInit(t)
 	testInitDevices(t)
-	testMQTT(t)
+
+	db := timeseries.DBHandler(GetConfig().DbConfig)
+	defer db.Close()
+	dbTimeseries := timeseries.DBHandler(GetConfig().TimeseriesDBConfig)
+	defer dbTimeseries.Close()
 }
 
 func testMain(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
 	config := GetConfig()
 	iot := New(config)
 	iot.Port = 3006
@@ -81,7 +89,6 @@ func testMain(t *testing.T) {
 }
 
 func testDBInit(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
 	iot := New(GetConfig())
 	iot.Port = 3006
 	stopper := make(chan bool)
@@ -89,7 +96,7 @@ func testDBInit(t *testing.T) {
 		iot.StartSensorServer(stopper)
 	}()
 	time.Sleep(time.Second * 2)
-	for i := 0; i < 500; i++ { // 500 seems to be the limit here (to investigate)
+	for i := range 500 {
 		time.Sleep(100 * time.Nanosecond)
 		name := fmt.Sprintf("DummyOnlyDev%d-%s", i, uuid.New())
 		dummy := DeviceDesc{
@@ -97,6 +104,7 @@ func testDBInit(t *testing.T) {
 			Description: fmt.Sprintf("%s1.0;DummyTemp", name),
 			Sensors:     []string{fmt.Sprintf("%sTemperature", name)},
 		}
+		log.Warnf("Init device %s", name)
 		iot.Init(dummy)
 	}
 	stopper <- true
@@ -104,7 +112,6 @@ func testDBInit(t *testing.T) {
 }
 
 func testInitDevices(t *testing.T) {
-	log.SetLevel(log.ErrorLevel)
 	iot := New(GetConfig())
 	iot.Port = 3006
 
@@ -113,10 +120,11 @@ func testInitDevices(t *testing.T) {
 		iot.StartSensorServer(stopper)
 	}()
 	time.Sleep(2 * time.Second)
-
+	devicesNr := 500
+	fmt.Printf("Start creating devices %d\n", devicesNr)
 	counter := make(chan int)
 	var wg sync.WaitGroup
-	for i := 0; i < 450; i++ {
+	for i := range devicesNr {
 
 		time.Sleep(100 * time.Nanosecond)
 		wg.Add(1)
@@ -130,11 +138,14 @@ func testInitDevices(t *testing.T) {
 					Sensors:     []string{fmt.Sprintf("%sTemperature", name)},
 				},
 			}
-
+			log.Warnf("Init device %s", name)
 			dummy.init(t)
+
+			log.Warnf("Send Data %s", name)
 			dummy.sendSensorData(t)
-			wg.Done()
 			fmt.Printf("--> %s\n", dummy.DeviceDesc.Name)
+
+			wg.Done()
 			counter <- 1
 		}(t, i, counter)
 
@@ -150,6 +161,7 @@ func testInitDevices(t *testing.T) {
 
 	}(counter)
 	wg.Wait()
+	fmt.Println("Finished")
 	stopper <- true
 	time.Sleep(time.Second * 2)
 }
@@ -165,20 +177,32 @@ func (d *DummyDevice) init(t *testing.T) {
 	}
 
 	log.Infof("%+v", req)
-	endTime := time.Now().Add(time.Second * 15)
+	endTime := time.Now().Add(time.Second * 60)
 	for time.Now().Before(endTime) {
 		client := http.Client{
 			Timeout: 2 * time.Second,
 		}
 		resp, err := client.Post(d.Url+URIInitDevice, "application/json",
 			bytes.NewBuffer(json_data))
-		if err == nil && resp.StatusCode == http.StatusOK {
-			return
+		{
+			if err != nil {
+				log.Warnf("Failed to create device %s: %v", d.DeviceDesc.Name, err)
+				time.Sleep(time.Second * 2)
+				continue
+			}
+			{
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					fmt.Printf("Device %s created", d.DeviceDesc.Name)
+					return
+				}
+			}
 		}
+
 		time.Sleep(time.Millisecond * 50)
 
 	}
-	t.Fatalf("Failed to create device %s", d.DeviceDesc.Name)
+	t.Errorf("Failed to create device %s", d.DeviceDesc.Name)
 
 }
 
@@ -188,7 +212,7 @@ func (d *DummyDevice) sendSensorData(t *testing.T) {
 	val := timeseries.TimeseriesImportStruct{
 		Tag: d.DeviceDesc.Sensors[0],
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		time.Sleep(time.Millisecond * 2)
 		val.Timestamps = append(val.Timestamps, time.Now().Format("2006-01-02 15:04:05.000"))
 		val.Values = append(val.Values, fmt.Sprintf("%f", 283.0+(rand.Float32()*15)))
@@ -197,8 +221,6 @@ func (d *DummyDevice) sendSensorData(t *testing.T) {
 	data = append(data, val)
 
 	d.sendData(t, &data)
-	fmt.Printf("Send data: %v\n", d.DeviceDesc.Sensors[0])
-
 }
 
 func (d *DummyDevice) sendData(t *testing.T, data *[]timeseries.TimeseriesImportStruct) {
@@ -206,6 +228,7 @@ func (d *DummyDevice) sendData(t *testing.T, data *[]timeseries.TimeseriesImport
 	if err != nil {
 		t.Fatal(err)
 	}
+	nextTryTime := time.Now().Add(time.Second * 5)
 	//fmt.Printf(string(jsonData))
 	client := http.Client{
 		Timeout: 5 * time.Second,
@@ -220,14 +243,17 @@ func (d *DummyDevice) sendData(t *testing.T, data *[]timeseries.TimeseriesImport
 
 	if resp.StatusCode != http.StatusOK {
 		log.Errorf("Failed with status: %s", resp.Status)
+		resp.Body.Close()
+		time.Sleep(time.Until(nextTryTime))
 		d.sendData(t, data)
+	} else {
+		_, err = io.ReadAll(resp.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		resp.Body.Close()
 	}
 
-	_, err = io.ReadAll(resp.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	defer resp.Body.Close()
 	//fmt.Println(string(b))
 }
 
@@ -265,46 +291,38 @@ func (d *DummyDevice) configureSensor(t *testing.T, configureSensorReq Configure
 	}
 	defer resp.Body.Close()
 
-	var res map[string]interface{}
+	var res map[string]any
 
 	json.NewDecoder(resp.Body).Decode(&res)
 
 	fmt.Println(res["json"])
 }
 
-func testMQTT(t *testing.T) {
-	logFile := "TestMQTT.log"
-	f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		fmt.Println("Failed to create logfile" + logFile)
-		panic(err)
-	}
-	defer f.Close()
-	log.SetOutput(f)
+func TestMQTT(t *testing.T) {
 	log.SetLevel(log.WarnLevel)
 	config := GetConfig()
-	New(config)
+	config.UploadInterval = 5
+	edge := New(config)
 	go StartMQTTBroker(1884, config)
 	time.Sleep(time.Second * 2)
-	for i := 0; i < 5000; i++ {
+	for i := range 1000 {
 		time.Sleep(time.Millisecond * 2)
-		fmt.Printf("<-- %d ", i)
-		go pubMQTTPaho(t, i)
+		go pubMQTTPaho(i)
 	}
-	<-time.After(time.Second * 40)
+	<-time.After(time.Second * 45)
+	edge.Timeseries.Close()
+	time.Sleep(time.Second * 5) // would fail if data is not written
 }
 
-type TestHandler struct {
-}
+type TestHandler struct{}
 
 func (h *TestHandler) handleConnected(client mqtt.Client) {
-	fmt.Println("TestHandler Connected")
+	log.Infoln("TestHandler Connected")
 
 }
 
 func (h *TestHandler) handleConnectionLost(client mqtt.Client, err error) {
-	fmt.Println("TestHandler handleConnectionLost")
-
+	log.Error("TestHandler handleConnectionLost")
 }
 
 func (h *TestHandler) handleMessage(client mqtt.Client, msg mqtt.Message) {
@@ -312,7 +330,8 @@ func (h *TestHandler) handleMessage(client mqtt.Client, msg mqtt.Message) {
 	//fmt.Printf("TestHandler handleMessage %s", string(payload))
 }
 
-func pubMQTTPaho(t *testing.T, id int) {
+func pubMQTTPaho(id int) {
+	log.Infof("<-- %d ", id)
 	h := TestHandler{}
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", "localhost", 1884))
@@ -326,13 +345,20 @@ func pubMQTTPaho(t *testing.T, id int) {
 	sensorsClient := mqtt.NewClient(opts)
 	time.Sleep(time.Second * 2)
 	if token := sensorsClient.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
+		log.Fatal(token.Error())
 	}
-	for {
+
+	endTime := time.Now().Add(time.Second * 10)
+	nextUploadTime := time.Now()
+	for time.Now().Before(endTime) {
 		topic := fmt.Sprintf("pahoClient/test/Temperature%d/data", id)
 		token := sensorsClient.Publish(topic, 0, false, fmt.Sprintf("%f", rand.Float32()*100))
 		token.Wait()
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Until(nextUploadTime))
+
+		nextUploadTime = time.Now().Add(time.Millisecond * 100)
 	}
+	log.Infof("Disconnecting %d\n", id)
+	sensorsClient.Disconnect(250)
 
 }

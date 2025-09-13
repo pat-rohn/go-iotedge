@@ -17,6 +17,7 @@ type IoTConfig struct {
 	MQTTRedirectAddress string
 	DbConfig            timeseries.DBConfig
 	TimeseriesDBConfig  timeseries.DBConfig
+	UploadInterval      int // in seconds
 }
 
 func New(iotConfig IoTConfig) IoTEdge {
@@ -59,6 +60,7 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("Port", 3004)
 	viper.SetDefault("MQTTPort", 1883)
 	viper.SetDefault("MQTTRedirectAddress", "")
+	viper.SetDefault("UploadInterval", 30)
 
 	viper.SetConfigName("iot")
 	viper.SetConfigType("json")

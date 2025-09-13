@@ -117,7 +117,7 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 		dev, err := s.Init(p.DeviceDesc)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`init device %s failed: %+v.`, p.DeviceDesc.Name, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("init device %s failed: %+v ", p.DeviceDesc.Name, err.Error())
+			log.WithFields(logFields).Warnf("init device %s failed: %+v ", p.DeviceDesc.Name, err.Error())
 			return
 		}
 

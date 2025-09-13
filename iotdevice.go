@@ -36,7 +36,7 @@ func (e *IoTEdge) Init(deviceDesc DeviceDesc) (Device, error) {
 				Name:     s,
 				DeviceID: dev.ID,
 			}
-			if err := e.DeviceDB.insertSensor(sensor); err != nil {
+			if err := e.DeviceDB.InsertSensor(sensor); err != nil {
 				log.Errorf("Failed to insert sensor %s: %s", sensor.Name, err)
 			}
 		}
