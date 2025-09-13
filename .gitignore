@@ -4,3 +4,6 @@ cmd/IoTServer/IoTServer
 cmd/IoTServer/measurements.db
 TestMQTT.log
 TestMain.log
+config.db*
+timeseries.db
+.vscode/launch.json
