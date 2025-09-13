@@ -24,30 +24,25 @@ type DummyDevice struct {
 	DeviceDesc DeviceDesc
 }
 
-func TestMain(t *testing.T) {
-	logFile := "TestMain.log"
-	f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		fmt.Println("Failed to create logfile" + logFile)
-		panic(err)
-	}
-	defer f.Close()
-	log.SetOutput(f)
-	log.SetLevel(log.TraceLevel)
+func TestAutomated(t *testing.T) {
+	testMain(t)
+	testDBInit(t)
+	testInitDevices(t)
+	testMQTT(t)
+}
+
+func testMain(t *testing.T) {
+	log.SetLevel(log.InfoLevel)
 	config := GetConfig()
 	iot := New(config)
 	iot.Port = 3006
-	db := timeseries.New(config.TimeseriesDBConfig)
-	defer db.CloseDatabase()
-	if err := db.OpenDatabase(); err != nil {
-		t.Fatalf("failed to create DB: %v", err)
-	}
+	db := timeseries.DBHandler(config.TimeseriesDBConfig)
 	if err := db.CreateTimeseriesTable(); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
-
+	stopper := make(chan bool)
 	go func() {
-		iot.StartSensorServer()
+		iot.StartSensorServer(stopper)
 	}()
 
 	time.Sleep(time.Second * 2)
@@ -81,21 +76,18 @@ func TestMain(t *testing.T) {
 		Offset:     -4.0,
 	}
 	dummy.configureSensor(t, configureSensorReq)
+	stopper <- true
+	time.Sleep(time.Second * 2)
 }
 
-func TestDBInit(t *testing.T) {
-	logFile := "TestDBInit.log"
-	f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		fmt.Println("Failed to create logfile" + logFile)
-		panic(err)
-	}
-	defer f.Close()
-	log.SetOutput(f)
+func testDBInit(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 	iot := New(GetConfig())
 	iot.Port = 3006
-	go iot.StartSensorServer()
+	stopper := make(chan bool)
+	go func() {
+		iot.StartSensorServer(stopper)
+	}()
 	time.Sleep(time.Second * 2)
 	for i := 0; i < 500; i++ { // 500 seems to be the limit here (to investigate)
 		time.Sleep(100 * time.Nanosecond)
@@ -107,23 +99,19 @@ func TestDBInit(t *testing.T) {
 		}
 		iot.Init(dummy)
 	}
-
+	stopper <- true
+	time.Sleep(time.Second * 2)
 }
 
-func TestInitDevices(t *testing.T) {
-	logFile := "TestInitDevices.log"
-	f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		fmt.Println("Failed to create logfile" + logFile)
-		panic(err)
-	}
-	defer f.Close()
-	log.SetOutput(f)
+func testInitDevices(t *testing.T) {
 	log.SetLevel(log.ErrorLevel)
 	iot := New(GetConfig())
 	iot.Port = 3006
 
-	go iot.StartSensorServer()
+	stopper := make(chan bool)
+	go func() {
+		iot.StartSensorServer(stopper)
+	}()
 	time.Sleep(2 * time.Second)
 
 	counter := make(chan int)
@@ -162,6 +150,8 @@ func TestInitDevices(t *testing.T) {
 
 	}(counter)
 	wg.Wait()
+	stopper <- true
+	time.Sleep(time.Second * 2)
 }
 
 func (d *DummyDevice) init(t *testing.T) {
@@ -282,7 +272,7 @@ func (d *DummyDevice) configureSensor(t *testing.T, configureSensorReq Configure
 	fmt.Println(res["json"])
 }
 
-func TestMQTT(t *testing.T) {
+func testMQTT(t *testing.T) {
 	logFile := "TestMQTT.log"
 	f, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {

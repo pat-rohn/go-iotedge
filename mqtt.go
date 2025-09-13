@@ -177,8 +177,7 @@ func StartMQTTBroker(port int, config IoTConfig) {
 	go publishPing(databaseClient, "/server/ping/data")
 
 	nextUploadTime := time.Now().Add(time.Second * 30)
-	dbh := timeseries.New(dbConfig)
-	dbh.CloseDatabase()
+	dbh := timeseries.DBHandler(dbConfig)
 	for {
 		dur := time.Until(nextUploadTime)
 		<-time.After(dur)
@@ -191,7 +190,7 @@ func StartMQTTBroker(port int, config IoTConfig) {
 		log.WithFields(logFields).Infof("Got data %d", len(data))
 
 		if len(config.MQTTRedirectAddress) <= 0 {
-			insertData(&dbh, data, nextUploadTime)
+			insertData(dbh, data, nextUploadTime)
 		} else {
 			log.WithFields(logFields).Infof("Redirect data to %s", config.MQTTRedirectAddress)
 			go sendData(&data, config.MQTTRedirectAddress)
@@ -203,10 +202,6 @@ func StartMQTTBroker(port int, config IoTConfig) {
 
 func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStruct, nextUploadTime time.Time) error {
 	logFields := log.Fields{"tech": "mqtt", "fnct": "insertData"}
-	if err := dbh.OpenDatabase(); err != nil {
-		return err
-	}
-	defer dbh.CloseDatabase()
 	for _, tsVal := range data {
 		timeTillNextIncome := time.Until(nextUploadTime)
 		log.WithFields(logFields).Tracef("timeTillNextIncome: %v", timeTillNextIncome.String())

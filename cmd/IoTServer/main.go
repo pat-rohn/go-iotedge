@@ -101,17 +101,14 @@ func main() {
 				return err
 			}
 			edge := iotedge.New(iotedge.GetConfig())
-			err = edge.InitializeDB()
-			if err != nil {
-				return err
-			}
-			dev, err := edge.GetDevice(args[0])
+
+			dev, err := edge.DeviceDB.GetDevice(args[0])
 			if err != nil {
 				return err
 			}
 			dev.Interval = float32(interval)
 			dev.Buffer = int(buffer)
-			if err = edge.Configure(dev); err != nil {
+			if err = edge.DeviceDB.Configure(dev); err != nil {
 				return err
 			}
 			return nil
@@ -130,11 +127,8 @@ func main() {
 			}
 			sensorName := args[1]
 			edge := iotedge.New(iotedge.GetConfig())
-			err = edge.InitializeDB()
-			if err != nil {
-				return err
-			}
-			iotDevice, err := edge.GetDevice(args[0])
+
+			iotDevice, err := edge.DeviceDB.GetDevice(args[0])
 			if err != nil {
 				return err
 			}
@@ -143,7 +137,7 @@ func main() {
 				Offset:   float32(offset),
 				DeviceID: iotDevice.ID,
 			}
-			if err = edge.ConfigureSensor(sensor); err != nil {
+			if err = edge.DeviceDB.ConfigureSensor(sensor); err != nil {
 				return err
 			}
 			return nil
@@ -166,12 +160,7 @@ func main() {
 
 func CreateTimeseriesTable() error {
 	iotConfig := iotedge.New(iotedge.GetConfig())
-	db := timeseries.New(iotConfig.TimeseriesDBConfig)
-	defer db.CloseDatabase()
-	if err := db.OpenDatabase(); err != nil {
-		log.Errorf("failed to create DB: %v", err)
-		return err
-	}
+	db := timeseries.DBHandler(iotConfig.TimeseriesDBConfig)
 	if err := db.CreateTimeseriesTable(); err != nil {
 		log.Errorf("failed to create DB: %v", err)
 		return err
@@ -183,7 +172,7 @@ func startServer() error {
 	config := iotedge.GetConfig()
 	iot := iotedge.New(config)
 	go iotedge.StartMQTTBroker(config.MQTTPort, config)
-	return iot.StartSensorServer()
+	return iot.StartSensorServer(nil)
 }
 
 func SetLogfile(filename string) {

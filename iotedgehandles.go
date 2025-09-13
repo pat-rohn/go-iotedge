@@ -24,14 +24,9 @@ func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
 		}
 		log.Infof("Received data.%+v", data)
 		log.Tracef("%+v", data)
-		if !s.semTimeseries.TryAcquire(1) {
-			http.Error(w, "busy saving timseries.", http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("busy saving timseries.")
-			return
-		}
-		defer s.semTimeseries.Release(1)
-		db := timeseries.New(s.TimeseriesDBConfig)
-		defer db.CloseDatabase()
+
+		db := timeseries.DBHandler(s.TimeseriesDBConfig)
+
 		for _, ts := range data {
 			log.Infof("insert %v", ts.Tag)
 
@@ -58,12 +53,12 @@ func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
 	SetHeaders(w, r.Header.Get("Origin"))
 	switch r.Method {
 	case http.MethodOptions:
-	case "GET":
+	case http.MethodGet:
 		output := Output{Status: "OK", Answer: "Okay"}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(output)
-	case "POST":
+	case http.MethodPost:
 		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
 		d := json.NewDecoder(r.Body)
 		var data []timeseries.TimeseriesImportStruct
@@ -74,22 +69,9 @@ func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", data)
-		if !s.semTimeseries.TryAcquire(1) {
 
-			http.Error(w, "busy uploading data.", http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("busy uploading data.")
-			return
-		}
-		defer s.semTimeseries.Release(1)
+		dbh := timeseries.DBHandler(s.TimeseriesDBConfig)
 
-		dbh := timeseries.New(s.TimeseriesDBConfig)
-		defer dbh.CloseDatabase()
-		if err := dbh.OpenDatabase(); err != nil {
-			log.Errorf("Failed to open database: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to open database: %v", err),
-				http.StatusInternalServerError)
-			return
-		}
 		for _, val := range data {
 			if err := dbh.InsertTimeseries(val, true); err != nil {
 				log.Errorf("Failed to insert values into database: %v", err)
@@ -132,13 +114,6 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 		logFields["Description"] = p.DeviceDesc.Description
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		if !s.sem.TryAcquire(1) {
-			http.Error(w, fmt.Sprintf(`too busy to init device %v.`, p.DeviceDesc.Name), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("too busy to init device %s ", p.DeviceDesc.Name)
-			return
-		}
-		defer s.sem.Release(1)
-
 		dev, err := s.Init(p.DeviceDesc)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`init device %s failed: %+v.`, p.DeviceDesc.Name, err.Error()), http.StatusInternalServerError)
@@ -180,15 +155,7 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
-
-		if !s.sem.TryAcquire(1) {
-			http.Error(w, fmt.Sprintf(`too busy to configure device %v.`, p.Name), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("too busy to configure device %s ", p.Name)
-			return
-		}
-		defer s.sem.Release(1)
-
-		dev, err := s.GetDevice(p.Name)
+		dev, err := s.DeviceDB.GetDevice(p.Name)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`getting device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
@@ -196,7 +163,7 @@ func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		dev.Interval = p.Interval
 		dev.Buffer = p.Buffer
-		err = s.Configure(dev)
+		err = s.DeviceDB.Configure(dev)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
@@ -222,7 +189,7 @@ func (s *IoTEdge) ConfSensor(w http.ResponseWriter, r *http.Request) {
 	SetHeaders(w, r.Header.Get("Origin"))
 	switch r.Method {
 	case http.MethodOptions:
-	case "POST":
+	case http.MethodPost:
 		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
 
 		d := json.NewDecoder(r.Body)
@@ -235,21 +202,13 @@ func (s *IoTEdge) ConfSensor(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
-
-		if !s.sem.TryAcquire(1) {
-			http.Error(w, fmt.Sprintf(`too busy to configure sensor %v.`, p.Name), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("too busy to configure sensor %s ", p.Name)
-			return
-		}
-		defer s.sem.Release(1)
-
-		dev, err := s.GetDevice(p.Name)
+		dev, err := s.DeviceDB.GetDevice(p.Name)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`getting device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
 			return
 		}
-		sensors, err := s.GetSensors(dev.ID)
+		sensors, err := s.DeviceDB.GetSensors(dev.ID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
 			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
@@ -262,7 +221,7 @@ func (s *IoTEdge) ConfSensor(w http.ResponseWriter, r *http.Request) {
 				updateSensor.Offset = p.Offset
 				updateSensor.DeviceID = dev.ID
 
-				if err = s.ConfigureSensor(updateSensor); err != nil {
+				if err = s.DeviceDB.ConfigureSensor(updateSensor); err != nil {
 					log.WithFields(logFields).Errorf("configuring sensor failed: %+v ", err.Error())
 				}
 
@@ -289,7 +248,7 @@ func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
 
-	case "GET":
+	case http.MethodGet:
 		output := Output{Status: "OK", Answer: "Okay"}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
@@ -305,20 +264,8 @@ func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
-		if !s.sem.TryAcquire(1) {
-			http.Error(w, fmt.Sprintf(`too busy to update sensor %s.`, p.Tags), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("too busy to update sensor  %s ", p.Tags)
-			return
-		}
-		defer s.sem.Release(1)
 
-		dbh := timeseries.New(s.TimeseriesDBConfig)
-		defer dbh.CloseDatabase()
-		if err := dbh.OpenDatabase(); err != nil {
-			log.Errorf("Failed to open database: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to open database: %v", err), http.StatusInternalServerError)
-			return
-		}
+		dbh := timeseries.DBHandler(s.TimeseriesDBConfig)
 		for _, val := range p.Data {
 			tsVal := timeseries.TimeseriesImportStruct{
 				Tag:        val.Name,
@@ -338,6 +285,38 @@ func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(output)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		log.WithFields(logFields).Errorln("Only Post is allowed.")
+	}
+}
+
+func (s *IoTEdge) Log(w http.ResponseWriter, r *http.Request) {
+
+	logFields := log.Fields{"fnct": "Log"}
+	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
+	SetHeaders(w, r.Header.Get("Origin"))
+	switch r.Method {
+	case http.MethodOptions:
+	case http.MethodPost:
+		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
+
+		d := json.NewDecoder(r.Body)
+
+		var p LogMessage
+		err := d.Decode(&p)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
+			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
+			return
+		}
+		log.WithFields(logFields).Infof("Value: %+v ", p)
+
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		return
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		log.WithFields(logFields).Errorln("Only Post is allowed.")

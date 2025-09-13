@@ -1,20 +1,15 @@
 package iotedge
 
 import (
-	"database/sql"
-
-	timeseries "github.com/pat-rohn/timeseries"
-	"golang.org/x/sync/semaphore"
+	"github.com/pat-rohn/timeseries"
 )
 
 type IoTEdge struct {
 	Port               int
 	DeviceDBConfig     timeseries.DBConfig
 	TimeseriesDBConfig timeseries.DBConfig
-	DB                 *sql.DB
-	sem                *semaphore.Weighted
-	semTimeseries      *semaphore.Weighted
-	Timeseries         timeseries.DbHandler
+	Timeseries         *timeseries.DbHandler
+	DeviceDB           *DeviceDB
 }
 
 const (
@@ -25,6 +20,7 @@ const (
 	URISensorConfigure string = "/sensor/configure"
 	URIUploadData      string = "/upload-data"
 	URISaveTimeseries  string = "/timeseries/save"
+	URILogging         string = "/log"
 )
 
 type Output struct {
@@ -78,4 +74,19 @@ type ConfigureDeviceReq struct {
 	Name     string
 	Interval float32
 	Buffer   int
+}
+
+type Loglevel int
+
+const (
+	Debug Loglevel = iota
+	Info
+	Warning
+	Error
+)
+
+type LogMessage struct {
+	Device string
+	Text   string
+	Level  Loglevel
 }

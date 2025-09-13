@@ -1,6 +1,7 @@
 package iotedge
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -8,7 +9,6 @@ import (
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"golang.org/x/sync/semaphore"
 )
 
 type IoTConfig struct {
@@ -26,13 +26,10 @@ func New(iotConfig IoTConfig) IoTEdge {
 		Port:               iotConfig.Port,
 		DeviceDBConfig:     iotConfig.DbConfig,
 		TimeseriesDBConfig: iotConfig.TimeseriesDBConfig,
-		sem:                semaphore.NewWeighted(1),
-		semTimeseries:      semaphore.NewWeighted(1),
 	}
-	if err := s.InitializeDB(); err != nil {
-		log.Fatalf("failed to create table: %v", err)
-	}
-	tsHandler := timeseries.New(iotConfig.TimeseriesDBConfig)
+	s.DeviceDB = GetDeviceDB(iotConfig.DbConfig)
+
+	tsHandler := timeseries.DBHandler(iotConfig.TimeseriesDBConfig)
 
 	if err := tsHandler.CreateTimeseriesTable(); err != nil {
 		log.Fatalf("failed to create table: %v", err)
@@ -75,7 +72,7 @@ func GetConfig() IoTConfig {
 	log.WithFields(logFields).Infoln("Read Config")
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			log.Warnf(fmt.Sprintf("no config file found: %v", err))
+			log.Warnf("no config file found: %v", err)
 			if err := os.Mkdir(pathToConfig, 0755); err != nil {
 				log.Fatal(fmt.Sprintf("Creating config folder failed: %v", err))
 			}
@@ -97,26 +94,41 @@ func GetConfig() IoTConfig {
 	return iotConfig
 }
 
-func (s *IoTEdge) StartSensorServer() error {
+func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
 
-	http.HandleFunc(URIUploadData, s.UploadDataHandler)
-	http.HandleFunc(URISaveTimeseries, s.SaveTimeseries)
+	mux := http.NewServeMux()
+	mux.HandleFunc(URIUploadData, s.UploadDataHandler)
+	mux.HandleFunc(URISaveTimeseries, s.SaveTimeseries)
+	mux.HandleFunc(URIInitDevice, s.InitDevice)
+	mux.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
+	mux.HandleFunc(URISensorConfigure, s.ConfSensor)
+	mux.HandleFunc(URIDeviceConfigure, s.ConfigureDevice)
 
-	http.HandleFunc(URIInitDevice, s.InitDevice)
-	http.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
-	http.HandleFunc(URISensorConfigure, s.ConfSensor)
-	http.HandleFunc(URIDeviceConfigure, s.ConfigureDevice)
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%v", s.Port),
+		Handler: mux,
+	}
 
-	port := s.Port
+	// Channel to handle server errors
+	errChan := make(chan error, 1)
 
-	fmt.Printf("Listen on port: %v\n", port)
-	log.WithFields(logFields).Infof("HTTPListenerPort is %v. ", port)
+	// Start server in goroutine
+	go func() {
+		fmt.Printf("Listen on port: %v\n", s.Port)
+		log.WithFields(logFields).Infof("HTTPListenerPort is %v. ", s.Port)
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			errChan <- err
+		}
+	}()
 
-	err := http.ListenAndServe(":"+fmt.Sprintf("%v", port), nil)
-	if err != nil {
+	// Wait for stop signal or error
+	select {
+	case <-stopChan:
+		log.WithFields(logFields).Info("Shutting down server gracefully...")
+		return server.Shutdown(context.Background())
+	case err := <-errChan:
 		log.WithFields(logFields).Fatalf("Listen and serve failed: %v.", err)
 		return err
 	}
-	return nil
 }
