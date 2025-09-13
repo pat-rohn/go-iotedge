@@ -75,18 +75,3 @@ type ConfigureDeviceReq struct {
 	Interval float32
 	Buffer   int
 }
-
-type Loglevel int
-
-const (
-	Debug Loglevel = iota
-	Info
-	Warning
-	Error
-)
-
-type LogMessage struct {
-	Device string
-	Text   string
-	Level  Loglevel
-}

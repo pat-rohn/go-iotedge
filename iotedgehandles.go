@@ -134,6 +134,43 @@ func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *IoTEdge) LogMessageHandle(w http.ResponseWriter, r *http.Request) {
+
+	logger := log.WithFields(log.Fields{"fnct": "InitDevice"})
+	logger.Infof("Got request: %v ", r.URL)
+	switch r.Method {
+	case "POST":
+		logger.Infof("Got post: %+v ", r.URL)
+
+		d := json.NewDecoder(r.Body)
+
+		var req LogMessage
+		err := d.Decode(&req)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
+			logger.Errorf("Input error: %+v ", err.Error())
+			return
+		}
+
+		logger.WithFields(log.Fields{"LogLevel": req.Level, "Device": req.Device})
+		logger.Infof("Value: %+v ", req)
+		err = s.LogMessage(req)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`Logging message failed: %+v.`, err.Error()), http.StatusInternalServerError)
+			logger.Errorf("Logging message failed: %+v ", err.Error())
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		return
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		logger.Errorln("Only Post is allowed.")
+	}
+}
+
 func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
 
 	logFields := log.Fields{"fnct": "ConfigureDevice"}

@@ -362,3 +362,44 @@ func pubMQTTPaho(id int) {
 	sensorsClient.Disconnect(250)
 
 }
+
+func TestLogging(t *testing.T) {
+	config := GetConfig()
+	iot := New(config)
+	iot.Port = 3006
+	db := timeseries.DBHandler(config.TimeseriesDBConfig)
+	if err := db.CreateTimeseriesTable(); err != nil {
+		log.Fatalf("failed to create table: %v", err)
+	}
+	stopper := make(chan bool)
+	go func() {
+		iot.StartSensorServer(stopper)
+	}()
+
+	time.Sleep(time.Second * 2)
+	logMessage := LogMessage{
+		Level:  Warning,
+		Text:   "test",
+		Device: "device1",
+	}
+	jsonData, err := json.Marshal(logMessage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := http.Client{
+		Timeout: 40 * time.Second,
+	}
+	resp, err := client.Post(fmt.Sprintf("http://localhost:%d%s",
+		iot.Port, URILogging), "application/json",
+		bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Failed with status: %s", resp.Status)
+	}
+	stopper <- true
+	time.Sleep(time.Second * 2)
+
+}

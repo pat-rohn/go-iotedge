@@ -107,6 +107,8 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	mux.HandleFunc(URISensorConfigure, s.ConfSensor)
 	mux.HandleFunc(URIDeviceConfigure, s.ConfigureDevice)
 
+	mux.HandleFunc(URILogging, s.LogMessageHandle)
+
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%v", s.Port),
 		Handler: mux,
