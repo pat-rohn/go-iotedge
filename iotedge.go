@@ -16,7 +16,7 @@ type IoTConfig struct {
 	MQTTPort            int
 	MQTTRedirectAddress string
 	DbConfig            timeseries.DBConfig
-	TimeseriesDBConfig  timeseries.DBConfig
+	TimeseriesTable     string
 	UploadInterval      int // in seconds
 }
 
@@ -24,38 +24,27 @@ func New(iotConfig IoTConfig) IoTEdge {
 	logFields := log.Fields{"fnct": "New"}
 	log.WithFields(logFields).Tracef("Config %+v", iotConfig)
 	s := IoTEdge{
-		Port:               iotConfig.Port,
-		DeviceDBConfig:     iotConfig.DbConfig,
-		TimeseriesDBConfig: iotConfig.TimeseriesDBConfig,
+		Port:      iotConfig.Port,
+		IoTConfig: iotConfig,
 	}
 	s.DeviceDB = GetDeviceDB(iotConfig.DbConfig)
 
-	tsHandler := timeseries.DBHandler(iotConfig.TimeseriesDBConfig)
-
-	if err := tsHandler.CreateTimeseriesTable(); err != nil {
+	if err := s.DeviceDB.CreateTimeseriesTable(iotConfig.TimeseriesTable); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
-	s.Timeseries = tsHandler
 	return s
 }
 
 func GetConfig() IoTConfig {
 	logFields := log.Fields{"fnct": "GetConfig"}
-	viper.SetDefault("DeviceDBConfig.Name", "config.db")
-	viper.SetDefault("DeviceDBConfig.IPOrPath", "./")
-	viper.SetDefault("DeviceDBConfig.UsePostgres", false)
-	viper.SetDefault("DeviceDBConfig.User", "user")
-	viper.SetDefault("DeviceDBConfig.Password", "password")
-	viper.SetDefault("DeviceDBConfig.Port", 5432)
-	viper.SetDefault("DeviceDBConfig.TableName", "configs")
-
-	viper.SetDefault("TimeseriesDBConfig.Name", "timeseries.db")
-	viper.SetDefault("TimeseriesDBConfig.IPOrPath", "./")
-	viper.SetDefault("TimeseriesDBConfig.UsePostgres", false)
-	viper.SetDefault("TimeseriesDBConfig.User", "user")
-	viper.SetDefault("TimeseriesDBConfig.Password", "password")
-	viper.SetDefault("TimeseriesDBConfig.Port", 5432)
-	viper.SetDefault("TimeseriesDBConfig.TableName", "timeseries")
+	viper.SetDefault("DBConfig.Name", "iot.db")
+	viper.SetDefault("DBConfig.IPOrPath", "./")
+	viper.SetDefault("DBConfig.UsePostgres", false)
+	viper.SetDefault("DBConfig.User", "user")
+	viper.SetDefault("DBConfig.Password", "password")
+	viper.SetDefault("DBConfig.Port", 5432)
+	viper.SetDefault("DBConfig.TableName", "configs")
+	viper.SetDefault("TimeseriesTable", "measurements")
 
 	viper.SetDefault("Port", 3004)
 	viper.SetDefault("MQTTPort", 1883)

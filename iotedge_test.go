@@ -24,7 +24,7 @@ type DummyDevice struct {
 }
 
 func TestAutomated(t *testing.T) {
-	log.SetLevel(log.FatalLevel)
+	log.SetLevel(log.ErrorLevel)
 	startTime := time.Now()
 	defer func() {
 		fmt.Printf("Finished after %s\n", time.Since(startTime).String())
@@ -36,7 +36,7 @@ func TestAutomated(t *testing.T) {
 
 	db := timeseries.DBHandler(GetConfig().DbConfig)
 	defer db.Close()
-	dbTimeseries := timeseries.DBHandler(GetConfig().TimeseriesDBConfig)
+	dbTimeseries := timeseries.DBHandler(GetConfig().DbConfig)
 	defer dbTimeseries.Close()
 }
 
@@ -44,8 +44,8 @@ func testMain(t *testing.T) {
 	config := GetConfig()
 	iot := New(config)
 	iot.Port = 3006
-	db := timeseries.DBHandler(config.TimeseriesDBConfig)
-	if err := db.CreateTimeseriesTable(); err != nil {
+	db := timeseries.DBHandler(config.DbConfig)
+	if err := db.CreateTimeseriesTable("measurements"); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
 	stopper := make(chan bool)
@@ -310,7 +310,7 @@ func TestMQTT(t *testing.T) {
 		go pubMQTTPaho(i)
 	}
 	<-time.After(time.Second * 45)
-	edge.Timeseries.Close()
+	edge.DeviceDB.Close()
 	time.Sleep(time.Second * 5) // would fail if data is not written
 }
 
@@ -367,10 +367,7 @@ func TestLogging(t *testing.T) {
 	config := GetConfig()
 	iot := New(config)
 	iot.Port = 3006
-	db := timeseries.DBHandler(config.TimeseriesDBConfig)
-	if err := db.CreateTimeseriesTable(); err != nil {
-		log.Fatalf("failed to create table: %v", err)
-	}
+
 	stopper := make(chan bool)
 	go func() {
 		iot.StartSensorServer(stopper)

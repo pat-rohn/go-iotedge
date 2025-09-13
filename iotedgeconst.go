@@ -1,15 +1,9 @@
 package iotedge
 
-import (
-	"github.com/pat-rohn/timeseries"
-)
-
 type IoTEdge struct {
-	Port               int
-	DeviceDBConfig     timeseries.DBConfig
-	TimeseriesDBConfig timeseries.DBConfig
-	Timeseries         *timeseries.DbHandler
-	DeviceDB           *DeviceDB
+	Port      int
+	IoTConfig IoTConfig
+	DeviceDB  *DeviceDB
 }
 
 const (

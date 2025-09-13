@@ -25,12 +25,10 @@ func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
 		log.Infof("Received data.%+v", data)
 		log.Tracef("%+v", data)
 
-		db := timeseries.DBHandler(s.TimeseriesDBConfig)
-
 		for _, ts := range data {
 			log.Infof("insert %v", ts.Tag)
 
-			if err := db.InsertTimeseries(ts, true); err != nil {
+			if err := s.DeviceDB.InsertTimeseries(ts, true, s.IoTConfig.TimeseriesTable); err != nil {
 				http.Error(w, fmt.Sprintf(`Failed to save timeseries: %+v.`, err.Error()), http.StatusInternalServerError)
 				log.WithFields(logFields).Errorf("Failed to save timeseries: %+v ", err.Error())
 				return
@@ -70,10 +68,8 @@ func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", data)
 
-		dbh := timeseries.DBHandler(s.TimeseriesDBConfig)
-
 		for _, val := range data {
-			if err := dbh.InsertTimeseries(val, true); err != nil {
+			if err := s.DeviceDB.InsertTimeseries(val, true, s.IoTConfig.TimeseriesTable); err != nil {
 				log.Errorf("Failed to insert values into database: %v", err)
 				http.Error(w, fmt.Sprintf("Failed to insert values into database: %v", err),
 					http.StatusInternalServerError)
@@ -302,7 +298,6 @@ func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		log.WithFields(logFields).Infof("Value: %+v ", p)
 
-		dbh := timeseries.DBHandler(s.TimeseriesDBConfig)
 		for _, val := range p.Data {
 			tsVal := timeseries.TimeseriesImportStruct{
 				Tag:        val.Name,
@@ -311,7 +306,7 @@ func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
 				Comments:   p.Tags,
 			}
 
-			if err := dbh.InsertTimeseries(tsVal, true); err != nil {
+			if err := s.DeviceDB.InsertTimeseries(tsVal, true, s.IoTConfig.TimeseriesTable); err != nil {
 				log.Errorf("Failed to insert values into database: %v", err)
 				http.Error(w, fmt.Sprintf("Failed to insert values into database: %v", err), http.StatusInternalServerError)
 				return

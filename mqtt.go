@@ -190,7 +190,7 @@ func StartMQTTBroker(port int, config IoTConfig) {
 		log.WithFields(logFields).Infof("Got data %d", len(data))
 
 		if len(config.MQTTRedirectAddress) <= 0 {
-			insertData(dbh, data, nextUploadTime)
+			insertData(dbh, data, nextUploadTime, config.TimeseriesTable)
 		} else {
 			log.WithFields(logFields).Infof("Redirect data to %s", config.MQTTRedirectAddress)
 			go sendData(&data, config.MQTTRedirectAddress)
@@ -200,7 +200,7 @@ func StartMQTTBroker(port int, config IoTConfig) {
 	}
 }
 
-func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStruct, nextUploadTime time.Time) error {
+func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStruct, nextUploadTime time.Time, table string) error {
 	logFields := log.Fields{"tech": "mqtt", "fnct": "insertData"}
 	for _, tsVal := range data {
 		timeTillNextIncome := time.Until(nextUploadTime)
@@ -215,7 +215,7 @@ func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStr
 		timeOut := time.Now().Add(time.Second * 2)
 
 		for time.Now().Before(timeOut) {
-			err := dbh.InsertTimeseries(tsVal, true)
+			err := dbh.InsertTimeseries(tsVal, true, table)
 			if err != nil {
 				log.WithFields(logFields).Warnf("Failed to insert values into database: %v", err)
 				time.Sleep(time.Millisecond * 50)
