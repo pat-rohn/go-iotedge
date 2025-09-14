@@ -2,19 +2,15 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"runtime"
 	"strconv"
 
 	iotedge "github.com/pat-rohn/go-iotedge"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var loglevel string
-var logPath string
 
 func initGlobalFlags() {
 	switch loglevel {
@@ -46,9 +42,6 @@ func main() {
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(logPath) > 0 {
-				SetLogfile(name + "-start")
-			}
 
 			if err := startServer(); err != nil {
 				return err
@@ -63,9 +56,6 @@ func main() {
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(logPath) > 0 {
-				SetLogfile(name + "-mqtt")
-			}
 			conf := iotedge.GetConfig()
 			iotedge.StartMQTTBroker(conf.MQTTPort, conf)
 
@@ -145,7 +135,6 @@ func main() {
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&loglevel, "verbose", "v", "w", "verbosity")
-	rootCmd.PersistentFlags().StringVarP(&logPath, "logfile", "l", "", "activate and create logfile")
 
 	rootCmd.AddCommand(startServerCmd)
 	rootCmd.AddCommand(mqttServerCmd)
@@ -173,27 +162,4 @@ func startServer() error {
 	iot := iotedge.New(config)
 	go iotedge.StartMQTTBroker(config.MQTTPort, config)
 	return iot.StartSensorServer(nil)
-}
-
-func SetLogfile(filename string) {
-	var path string
-	operatingSystem := runtime.GOOS
-	switch operatingSystem {
-	case "windows":
-		path = "C:/ProgramData/"
-	case "linux":
-		os.Mkdir("./log", 0644)
-		path = "./log/"
-	default:
-		os.Mkdir("./log", 0644)
-		path = "./log/"
-	}
-	fmt.Printf("%s: Logging path set to '%v'\n", operatingSystem, path)
-	log.SetOutput(&lumberjack.Logger{
-		Filename:   fmt.Sprintf("%s%s.log", path, filename),
-		MaxSize:    500, // megabytes
-		MaxBackups: 3,
-		MaxAge:     28,   //days
-		Compress:   true, // disabled by default
-	})
 }
