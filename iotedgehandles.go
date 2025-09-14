@@ -1,365 +1,234 @@
 package iotedge
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	timeseries "github.com/pat-rohn/timeseries"
+	"github.com/gin-gonic/gin"
+
+	"github.com/pat-rohn/timeseries"
 
 	log "github.com/sirupsen/logrus"
 )
 
-func (s *IoTEdge) SaveTimeseries(w http.ResponseWriter, req *http.Request) {
-
+func (s *IoTEdge) SaveTimeseries(c *gin.Context) {
 	logFields := log.Fields{"fnct": "SaveTimeseries"}
 	var data []timeseries.TimeseriesImportStruct
-	switch req.Method {
-	case "POST":
-		d := json.NewDecoder(req.Body)
-		err := d.Decode(&data)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		log.Infof("Received data.%+v", data)
-		log.Tracef("%+v", data)
 
-		for _, ts := range data {
-			log.Infof("insert %v", ts.Tag)
-
-			if err := s.DeviceDB.InsertTimeseries(ts, true, s.IoTConfig.TimeseriesTable); err != nil {
-				http.Error(w, fmt.Sprintf(`Failed to save timeseries: %+v.`, err.Error()), http.StatusInternalServerError)
-				log.WithFields(logFields).Errorf("Failed to save timeseries: %+v ", err.Error())
-				return
-
-			}
-		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-
-		json.NewEncoder(w).Encode(`{"success": true}`)
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		log.Errorf("Cant do that.")
+	if err := c.BindJSON(&data); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
+
+	log.Infof("Received data.%+v", data)
+	log.Tracef("%+v", data)
+
+	for _, ts := range data {
+		log.Infof("insert %v", ts.Tag)
+		if err := s.DeviceDB.InsertTimeseries(ts, true, s.IoTConfig.TimeseriesTable); err != nil {
+			log.WithFields(logFields).Errorf("Failed to save timeseries: %+v ", err.Error())
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save timeseries: %v", err)})
+			return
+		}
+	}
+
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-func (s *IoTEdge) UploadDataHandler(w http.ResponseWriter, r *http.Request) {
+func (s *IoTEdge) UploadDataHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "UploadDataHandler"}
-	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-	SetHeaders(w, r.Header.Get("Origin"))
-	switch r.Method {
-	case http.MethodOptions:
-	case http.MethodGet:
-		output := Output{Status: "OK", Answer: "Okay"}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(output)
-	case http.MethodPost:
-		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
-		d := json.NewDecoder(r.Body)
-		var data []timeseries.TimeseriesImportStruct
-		err := d.Decode(&data)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
+	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
+
+	// Handle OPTIONS request
+	if c.Request.Method == http.MethodOptions {
+		SetGinHeaders(c)
+		return
+	}
+
+	if c.Request.Method == http.MethodGet {
+		c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Okay"})
+		return
+	}
+
+	var data []timeseries.TimeseriesImportStruct
+	if err := c.BindJSON(&data); err != nil {
+		log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
+		return
+	}
+
+	log.WithFields(logFields).Infof("Value: %+v ", data)
+
+	for _, val := range data {
+		if err := s.DeviceDB.InsertTimeseries(val, true, s.IoTConfig.TimeseriesTable); err != nil {
+			log.Errorf("Failed to insert values into database: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to insert values into database: %v", err)})
 			return
 		}
-		log.WithFields(logFields).Infof("Value: %+v ", data)
-
-		for _, val := range data {
-			if err := s.DeviceDB.InsertTimeseries(val, true, s.IoTConfig.TimeseriesTable); err != nil {
-				log.Errorf("Failed to insert values into database: %v", err)
-				http.Error(w, fmt.Sprintf("Failed to insert values into database: %v", err),
-					http.StatusInternalServerError)
-				return
-			}
-		}
-
-		output := Output{Status: "OK", Answer: "Success"}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(output)
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		log.WithFields(logFields).Errorln("Only Post is allowed.")
 	}
+
+	c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Success"})
 }
 
-func (s *IoTEdge) InitDevice(w http.ResponseWriter, r *http.Request) {
-
+func (s *IoTEdge) InitDevice(c *gin.Context) {
 	logFields := log.Fields{"fnct": "InitDevice"}
-	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-	switch r.Method {
-	case "POST":
-		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
+	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 
-		d := json.NewDecoder(r.Body)
-		type DeviceReq struct {
-			DeviceDesc DeviceDesc `json:"Device"`
-		}
-		var p DeviceReq
-		err := d.Decode(&p)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
-			return
-		}
-		logFields["Name"] = p.DeviceDesc.Name
-		logFields["Description"] = p.DeviceDesc.Description
-		log.WithFields(logFields).Infof("Value: %+v ", p)
-
-		dev, err := s.Init(p.DeviceDesc)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`init device %s failed: %+v.`, p.DeviceDesc.Name, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Warnf("init device %s failed: %+v ", p.DeviceDesc.Name, err.Error())
-			return
-		}
-
-		log.WithFields(logFields).Infof("device initialized: %+v ", dev)
-		json.NewEncoder(w).Encode(dev)
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-
-		return
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		log.WithFields(logFields).Errorln("Only Post is allowed.")
+	var deviceReq struct {
+		DeviceDesc DeviceDesc `json:"Device"`
 	}
+
+	if err := c.BindJSON(&deviceReq); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
+		return
+	}
+
+	logFields["Name"] = deviceReq.DeviceDesc.Name
+	logFields["Description"] = deviceReq.DeviceDesc.Description
+	log.WithFields(logFields).Infof("Value: %+v", deviceReq)
+
+	dev, err := s.Init(deviceReq.DeviceDesc)
+	if err != nil {
+		log.WithFields(logFields).Warnf("init device %s failed: %v", deviceReq.DeviceDesc.Name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("init device %s failed: %v", deviceReq.DeviceDesc.Name, err)})
+		return
+	}
+
+	log.WithFields(logFields).Infof("device initialized: %+v", dev)
+	SetGinHeaders(c)
+	c.JSON(http.StatusOK, dev)
 }
 
-func (s *IoTEdge) LogMessageHandle(w http.ResponseWriter, r *http.Request) {
-
-	logger := log.WithFields(log.Fields{"fnct": "InitDevice"})
-	logger.Infof("Got request: %v ", r.URL)
-	switch r.Method {
-	case "POST":
-		logger.Infof("Got post: %+v ", r.URL)
-
-		d := json.NewDecoder(r.Body)
-
-		var req LogMessage
-		err := d.Decode(&req)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
-			logger.Errorf("Input error: %+v ", err.Error())
-			return
-		}
-
-		logger.WithFields(log.Fields{"LogLevel": req.Level, "Device": req.Device})
-		logger.Infof("Value: %+v ", req)
-		err = s.LogMessage(req)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`Logging message failed: %+v.`, err.Error()), http.StatusInternalServerError)
-			logger.Errorf("Logging message failed: %+v ", err.Error())
-			return
-		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-
-		return
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		logger.Errorln("Only Post is allowed.")
-	}
-}
-
-func (s *IoTEdge) ConfigureDevice(w http.ResponseWriter, r *http.Request) {
-
+func (s *IoTEdge) ConfigureDevice(c *gin.Context) {
 	logFields := log.Fields{"fnct": "ConfigureDevice"}
-	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-	SetHeaders(w, r.Header.Get("Origin"))
-	switch r.Method {
-	case http.MethodOptions:
+	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 
-	case http.MethodPost:
-		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
-
-		d := json.NewDecoder(r.Body)
-
-		var p ConfigureDeviceReq
-		err := d.Decode(&p)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
-			return
-		}
-		log.WithFields(logFields).Infof("Value: %+v ", p)
-		dev, err := s.DeviceDB.GetDevice(p.Name)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`getting device failed: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
-			return
-		}
-		dev.Interval = p.Interval
-		dev.Buffer = p.Buffer
-		err = s.DeviceDB.Configure(dev)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
-			return
-		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-
-		log.WithFields(logFields).Infof("device: %+v ", dev)
-		json.NewEncoder(w).Encode(dev)
+	var p ConfigureDeviceReq
+	if err := c.BindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
 		return
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		log.WithFields(logFields).Errorln("Only Post is allowed.")
 	}
+
+	log.WithFields(logFields).Infof("Value: %+v", p)
+	dev, err := s.DeviceDB.GetDevice(p.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("getting device failed: %v", err)})
+		return
+	}
+
+	dev.Interval = p.Interval
+	dev.Buffer = p.Buffer
+	if err = s.DeviceDB.Configure(dev); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("configuring device failed: %v", err)})
+		return
+	}
+
+	SetGinHeaders(c)
+	c.JSON(http.StatusOK, dev)
 }
 
-func (s *IoTEdge) ConfSensor(w http.ResponseWriter, r *http.Request) {
-
+func (s *IoTEdge) ConfSensor(c *gin.Context) {
 	logFields := log.Fields{"fnct": "ConfSensor"}
-	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-	SetHeaders(w, r.Header.Get("Origin"))
-	switch r.Method {
-	case http.MethodOptions:
-	case http.MethodPost:
-		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
+	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 
-		d := json.NewDecoder(r.Body)
-
-		var p ConfigureSensorReq
-		err := d.Decode(&p)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`input error: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("input error: %+v ", err.Error())
-			return
-		}
-		log.WithFields(logFields).Infof("Value: %+v ", p)
-		dev, err := s.DeviceDB.GetDevice(p.Name)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`getting device failed: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("getting device failed: %+v ", err.Error())
-			return
-		}
-		sensors, err := s.DeviceDB.GetSensors(dev.ID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`configuring device failed: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("configuring device failed: %+v ", err.Error())
-			return
-		}
-
-		for _, ses := range sensors {
-			if ses.Name == p.SensorName {
-				updateSensor := ses
-				updateSensor.Offset = p.Offset
-				updateSensor.DeviceID = dev.ID
-
-				if err = s.DeviceDB.ConfigureSensor(updateSensor); err != nil {
-					log.WithFields(logFields).Errorf("configuring sensor failed: %+v ", err.Error())
-				}
-
-			}
-		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-
-		log.WithFields(logFields).Infof("sensor: %+v ", dev)
-		json.NewEncoder(w).Encode(dev)
+	var p ConfigureSensorReq
+	if err := c.BindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("input error: %v", err)})
 		return
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		log.WithFields(logFields).Errorln("Only Post is allowed.")
 	}
-}
 
-func (s *IoTEdge) UpdateSensorHandler(w http.ResponseWriter, r *http.Request) {
+	log.WithFields(logFields).Infof("Value: %+v", p)
+	dev, err := s.DeviceDB.GetDevice(p.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("getting device failed: %v", err)})
+		return
+	}
 
-	logFields := log.Fields{"fnct": "UpdateSensorHandler"}
-	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-	SetHeaders(w, r.Header.Get("Origin"))
-	switch r.Method {
-	case http.MethodOptions:
+	sensors, err := s.DeviceDB.GetSensors(dev.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("getting sensors failed: %v", err)})
+		return
+	}
 
-	case http.MethodGet:
-		output := Output{Status: "OK", Answer: "Okay"}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(output)
-	case "POST":
-		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
-		d := json.NewDecoder(r.Body)
-		var p sensorValues
-		err := d.Decode(&p)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
-			return
-		}
-		log.WithFields(logFields).Infof("Value: %+v ", p)
+	for _, ses := range sensors {
+		if ses.Name == p.SensorName {
+			updateSensor := ses
+			updateSensor.Offset = p.Offset
+			updateSensor.DeviceID = dev.ID
 
-		for _, val := range p.Data {
-			tsVal := timeseries.TimeseriesImportStruct{
-				Tag:        val.Name,
-				Timestamps: []string{time.Now().UTC().Format("2006-01-02 15:04:05.000")},
-				Values:     []string{fmt.Sprintf("%f", val.Value)},
-				Comments:   p.Tags,
-			}
-
-			if err := s.DeviceDB.InsertTimeseries(tsVal, true, s.IoTConfig.TimeseriesTable); err != nil {
-				log.Errorf("Failed to insert values into database: %v", err)
-				http.Error(w, fmt.Sprintf("Failed to insert values into database: %v", err), http.StatusInternalServerError)
+			if err = s.DeviceDB.ConfigureSensor(updateSensor); err != nil {
+				log.WithFields(logFields).Errorf("configuring sensor failed: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("configuring sensor failed: %v", err)})
 				return
 			}
 		}
-
-		output := Output{Status: "OK", Answer: "Success"}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(output)
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		log.WithFields(logFields).Errorln("Only Post is allowed.")
 	}
+
+	SetGinHeaders(c)
+	c.JSON(http.StatusOK, dev)
 }
 
-func (s *IoTEdge) Log(w http.ResponseWriter, r *http.Request) {
+func (s *IoTEdge) UpdateSensorHandler(c *gin.Context) {
+	logFields := log.Fields{"fnct": "UpdateSensorHandler"}
+	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 
-	logFields := log.Fields{"fnct": "Log"}
-	log.WithFields(logFields).Infof("Got request: %v ", r.URL)
-	SetHeaders(w, r.Header.Get("Origin"))
-	switch r.Method {
-	case http.MethodOptions:
-	case http.MethodPost:
-		log.WithFields(logFields).Infof("Got post: %+v ", r.URL)
+	if c.Request.Method == http.MethodGet {
+		SetGinHeaders(c)
+		c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Okay"})
+		return
+	}
 
-		d := json.NewDecoder(r.Body)
+	var p sensorValues
+	if err := c.BindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
+		return
+	}
 
-		var p LogMessage
-		err := d.Decode(&p)
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`Input error: %+v.`, err.Error()), http.StatusInternalServerError)
-			log.WithFields(logFields).Errorf("Input error: %+v ", err.Error())
+	log.WithFields(logFields).Infof("Value: %+v", p)
+
+	for _, val := range p.Data {
+		tsVal := timeseries.TimeseriesImportStruct{
+			Tag:        val.Name,
+			Timestamps: []string{time.Now().UTC().Format("2006-01-02 15:04:05.000")},
+			Values:     []string{fmt.Sprintf("%f", val.Value)},
+			Comments:   p.Tags,
+		}
+
+		if err := s.DeviceDB.InsertTimeseries(tsVal, true, s.IoTConfig.TimeseriesTable); err != nil {
+			log.Errorf("Failed to insert values into database: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to insert values into database: %v", err)})
 			return
 		}
-		log.WithFields(logFields).Infof("Value: %+v ", p)
-
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json")
-
-		return
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		log.WithFields(logFields).Errorln("Only Post is allowed.")
 	}
+
+	SetGinHeaders(c)
+	c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Success"})
 }
 
-func SetHeaders(w http.ResponseWriter, origin string) {
+func (s *IoTEdge) Log(c *gin.Context) {
+	logFields := log.Fields{"fnct": "Log"}
+	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
+
+	var p LogMessage
+	if err := c.BindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
+		return
+	}
+
+	log.WithFields(logFields).Infof("Value: %+v", p)
+	SetGinHeaders(c)
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
+// Helper function for CORS headers
+func SetGinHeaders(c *gin.Context) {
+	origin := c.GetHeader("Origin")
 	log.Tracef("origin from header: %+s", origin)
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT, POST, PATCH, OPTIONS, GET, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "content-type")
-	w.Header().Set("Access-Control-Max-Age", "240")
+	c.Header("Access-Control-Allow-Origin", origin)
+	c.Header("Access-Control-Allow-Credentials", "true")
+	c.Header("Access-Control-Allow-Methods", "PUT, POST, PATCH, OPTIONS, GET, DELETE")
+	c.Header("Access-Control-Allow-Headers", "content-type")
+	c.Header("Access-Control-Max-Age", "240")
 }

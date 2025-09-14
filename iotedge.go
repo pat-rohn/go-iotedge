@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/gin-gonic/gin"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -87,20 +88,19 @@ func GetConfig() IoTConfig {
 
 func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
+	router := gin.Default()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc(URIUploadData, s.UploadDataHandler)
-	mux.HandleFunc(URISaveTimeseries, s.SaveTimeseries)
-	mux.HandleFunc(URIInitDevice, s.InitDevice)
-	mux.HandleFunc(URIUpdateSensor, s.UpdateSensorHandler)
-	mux.HandleFunc(URISensorConfigure, s.ConfSensor)
-	mux.HandleFunc(URIDeviceConfigure, s.ConfigureDevice)
-
-	mux.HandleFunc(URILogging, s.LogMessageHandle)
+	router.POST(URIUploadData, s.UploadDataHandler)
+	router.POST(URISaveTimeseries, s.SaveTimeseries)
+	router.POST(URIInitDevice, s.InitDevice)
+	router.POST(URIUpdateSensor, s.UpdateSensorHandler)
+	router.POST(URISensorConfigure, s.ConfSensor)
+	router.POST(URIDeviceConfigure, s.ConfigureDevice)
+	router.POST(URILogging, s.Log)
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%v", s.Port),
-		Handler: mux,
+		Handler: router,
 	}
 
 	// Channel to handle server errors
