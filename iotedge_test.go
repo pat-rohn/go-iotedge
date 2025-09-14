@@ -79,9 +79,9 @@ func testMain(t *testing.T) {
 	dummy.configureDevice(t, configureDeviceReq)
 
 	configureSensorReq := ConfigureSensorReq{
-		Name:       dummy.DeviceDesc.Name,
-		SensorName: dummy.DeviceDesc.Sensors[0],
-		Offset:     -4.0,
+		Name:         dummy.DeviceDesc.Name,
+		SensorName:   dummy.DeviceDesc.Sensors[0],
+		SensorOffset: -4.0,
 	}
 	dummy.configureSensor(t, configureSensorReq)
 	stopper <- true
@@ -198,12 +198,9 @@ func (d *DummyDevice) init(t *testing.T) {
 				}
 			}
 		}
-
 		time.Sleep(time.Millisecond * 50)
-
 	}
 	t.Errorf("Failed to create device %s", d.DeviceDesc.Name)
-
 }
 
 func (d *DummyDevice) sendSensorData(t *testing.T) {
@@ -398,5 +395,4 @@ func TestLogging(t *testing.T) {
 	}
 	stopper <- true
 	time.Sleep(time.Second * 2)
-
 }

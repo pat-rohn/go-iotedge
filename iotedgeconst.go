@@ -44,10 +44,10 @@ type DeviceDesc struct {
 }
 
 type Sensor struct {
-	ID       int
-	DeviceID int
-	Name     string
-	Offset   float32
+	ID           int
+	DeviceID     int
+	Name         string
+	SensorOffset float32
 }
 
 type Device struct {
@@ -59,9 +59,9 @@ type Device struct {
 }
 
 type ConfigureSensorReq struct {
-	Name       string
-	SensorName string
-	Offset     float32
+	Name         string
+	SensorName   string
+	SensorOffset float32
 }
 
 type ConfigureDeviceReq struct {

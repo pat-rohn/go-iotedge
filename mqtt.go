@@ -32,7 +32,7 @@ type MQTTEdge struct {
 func (h *TimeseriesHandler) handleConnected(client mqtt.Client) {
 	fmt.Println("TimeseriesHandler Connected")
 	logFields := log.Fields{"Handler": "TimeseriesHandler", "fnct": "handleConnected"}
-	log.WithFields(logFields).Dup().Logger.Infoln("New Client")
+	log.WithFields(logFields).Infoln("New Client")
 
 }
 
@@ -201,23 +201,23 @@ func StartMQTTBroker(port int, config IoTConfig) {
 }
 
 func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStruct, nextUploadTime time.Time, table string) error {
-	logFields := log.Fields{"tech": "mqtt", "fnct": "insertData"}
+	logger := log.WithFields(log.Fields{"tech": "mqtt", "fnct": "insertData"})
 	for _, tsVal := range data {
 		timeTillNextIncome := time.Until(nextUploadTime)
-		log.WithFields(logFields).Tracef("timeTillNextIncome: %v", timeTillNextIncome.String())
+		logger.Tracef("timeTillNextIncome: %v", timeTillNextIncome.String())
 		if timeTillNextIncome <= time.Second*2 {
-			log.WithFields(logFields).Errorln("Too much data, abort")
+			logger.Errorln("Too much data, abort")
 			break
 
 		}
-		log.WithFields(logFields).Tracef("insert %d/%d entries for %s ",
+		logger.Tracef("insert %d/%d entries for %s ",
 			len(tsVal.Timestamps), len(tsVal.Values), tsVal.Tag)
 		timeOut := time.Now().Add(time.Second * 2)
 
 		for time.Now().Before(timeOut) {
 			err := dbh.InsertTimeseries(tsVal, true, table)
 			if err != nil {
-				log.WithFields(logFields).Warnf("Failed to insert values into database: %v", err)
+				logger.Warnf("Failed to insert values into database: %v", err)
 				time.Sleep(time.Millisecond * 50)
 			} else {
 				break

@@ -11,53 +11,92 @@ import (
 
 type DeviceDB struct {
 	*timeseries.DbHandler
+	conf timeseries.DBConfig
 }
 
-var once sync.Once
+var onceDeviceDB sync.Once
 var deviceDB *DeviceDB
+var dbhandler *timeseries.DbHandler
+
+func CreateDbHandler(config timeseries.DBConfig) *timeseries.DbHandler {
+
+	dbhandler = timeseries.DBHandler(config)
+	return dbhandler
+}
 
 func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
-	logFields := log.Fields{"fnct": "InitializeDB", "name": config.Name}
-	log.WithFields(logFields).Infoln("init")
-	once.Do(func() {
-		deviceDB = &DeviceDB{}
-		dbhandler := timeseries.DBHandler(config)
+	logger := log.WithFields(log.Fields{"fnct": "InitializeDB", "name": config.Name})
+	if dbhandler == nil {
+		dbhandler = CreateDbHandler(config)
+	} else {
+		logger.Infof("Reusing existing DBHandler for deviceDB")
+	}
+	onceDeviceDB.Do(func() {
+		logger.Infoln("init")
+		deviceDB = &DeviceDB{conf: config}
 		deviceDB.DbHandler = dbhandler
-		log.WithFields(logFields).Infof("Opened database with name %s ",
-			config.Name)
-		err := deviceDB.DB.Ping()
-		if err != nil {
-			log.Fatal(err)
-		}
-		idStr := "id integer primary key autoincrement"
+		var idStr, numericType string
 		if config.UsePostgres {
-			idStr = "id  			SERIAL PRIMARY KEY UNIQUE"
+			// Define type strings based on database type
+			idStr = "id SERIAL PRIMARY KEY"
+			numericType = "NUMERIC"
+		} else {
+			idStr = "id INTEGER PRIMARY KEY AUTOINCREMENT"
+			numericType = "NUMBER"
 		}
+
 		sqlStr := `CREATE TABLE IF NOT EXISTS devices (
 			` + idStr + ` ,
 			name        TEXT NOT NULL UNIQUE,
 			description TEXT DEFAULT '',
-			intervall	NUMBER DEFAULT 60,
+			intervall	 ` + numericType + ` DEFAULT 60,
 			buffer 		INTEGER DEFAULT 2
 		   );
 		 `
 		if _, err := deviceDB.ExecuteQuery(sqlStr); err != nil {
-			log.WithFields(logFields).Fatalf("failed to create devices table:%v", err)
+			logger.Fatalf("failed to create devices table:%v", err)
 		}
 		sqlStr = `CREATE TABLE IF NOT EXISTS sensors (
 		` + idStr + ` ,
-		deviceid        SERIAL NOT NULL,
+		deviceid        INTEGER NOT NULL,
 		name			TEXT NOT NULL,
 		description 	TEXT DEFAULT '',
-		offset			NUMBER DEFAULT 0
+		sensor_offset			` + numericType + ` DEFAULT 0
 	   );
 	 `
 		if _, err := deviceDB.ExecuteQuery(sqlStr); err != nil {
-			log.WithFields(logFields).Fatalf("failed to create sensors table:%v", err)
+			logger.Fatalf("failed to create sensors table:%v", err)
 		}
 	})
-
+	if !compareConfigs(deviceDB.conf, config) {
+		logger.Fatalf("Config must not change %+v to %+v", deviceDB.conf, config)
+		deviceDB.Close()
+		deviceDB = nil
+	}
 	return deviceDB
+}
+
+func compareConfigs(oldConf, newConf timeseries.DBConfig) bool {
+	if oldConf.Name != newConf.Name {
+		return false
+	}
+	if oldConf.IPOrPath != newConf.IPOrPath {
+		return false
+	}
+	if oldConf.User != newConf.User {
+		return false
+	}
+	if oldConf.Password != newConf.Password {
+		return false
+	}
+	if oldConf.Port != newConf.Port {
+		return false
+	}
+	if oldConf.UsePostgres != newConf.UsePostgres {
+		return false
+	}
+
+	return true
 }
 
 func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
@@ -140,14 +179,14 @@ func (devDB *DeviceDB) GetSensors(deviceID int) ([]Sensor, error) {
 	logFields := log.Fields{"fnct": "GetSensors"}
 	log.WithFields(logFields).Infof("%d", deviceID)
 	var sensors []Sensor
-	rows, err := devDB.ExecuteQuery("SELECT id, deviceid, name, offset FROM sensors WHERE deviceid = ?", deviceID)
+	rows, err := devDB.ExecuteQuery("SELECT id, deviceid, name, sensor_offset FROM sensors WHERE deviceid = ?", deviceID)
 	if err != nil {
 		return sensors, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var sensor Sensor
-		if err := rows.Scan(&sensor.ID, &sensor.DeviceID, &sensor.Name, &sensor.Offset); err != nil {
+		if err := rows.Scan(&sensor.ID, &sensor.DeviceID, &sensor.Name, &sensor.SensorOffset); err != nil {
 			return sensors, err
 		}
 		sensors = append(sensors, sensor)
@@ -175,9 +214,9 @@ func (devDB *DeviceDB) Configure(dev Device) error {
 func (devDB *DeviceDB) ConfigureSensor(sensor Sensor) error {
 	logFields := log.Fields{"fnct": "ConfigureSensor"}
 	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ",
-		sensor.Name, sensor.Offset)
-	_, err := devDB.ExecuteQuery("UPDATE sensors SET name = ? , offset = ?  WHERE deviceid = ?",
-		sensor.Name, sensor.Offset, sensor.DeviceID)
+		sensor.Name, sensor.SensorOffset)
+	_, err := devDB.ExecuteQuery("UPDATE sensors SET name = ? , sensor_offset = ?  WHERE deviceid = ?",
+		sensor.Name, sensor.SensorOffset, sensor.DeviceID)
 	if err != nil {
 		log.WithFields(logFields).Errorf("exec failed: %v", err)
 		return err

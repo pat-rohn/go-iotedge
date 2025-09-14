@@ -133,9 +133,9 @@ func main() {
 				return err
 			}
 			sensor := iotedge.Sensor{
-				Name:     sensorName,
-				Offset:   float32(offset),
-				DeviceID: iotDevice.ID,
+				Name:         sensorName,
+				SensorOffset: float32(offset),
+				DeviceID:     iotDevice.ID,
 			}
 			if err = edge.DeviceDB.ConfigureSensor(sensor); err != nil {
 				return err

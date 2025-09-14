@@ -155,7 +155,7 @@ func (s *IoTEdge) ConfSensor(c *gin.Context) {
 	for _, ses := range sensors {
 		if ses.Name == p.SensorName {
 			updateSensor := ses
-			updateSensor.Offset = p.Offset
+			updateSensor.SensorOffset = p.SensorOffset
 			updateSensor.DeviceID = dev.ID
 
 			if err = s.DeviceDB.ConfigureSensor(updateSensor); err != nil {
@@ -211,14 +211,18 @@ func (s *IoTEdge) Log(c *gin.Context) {
 	logFields := log.Fields{"fnct": "Log"}
 	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 
-	var p LogMessage
-	if err := c.BindJSON(&p); err != nil {
+	var logMsg LogMessage
+	if err := c.BindJSON(&logMsg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
 		return
 	}
 
-	log.WithFields(logFields).Infof("Value: %+v", p)
+	log.WithFields(logFields).Infof("Value: %+v", logMsg)
 	SetGinHeaders(c)
+	if err := s.LogMessage(logMsg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to log message: %v", err)})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
