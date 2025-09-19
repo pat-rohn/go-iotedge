@@ -2,6 +2,7 @@ package iotedge
 
 import (
 	"sync"
+	"time"
 
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
@@ -17,9 +18,10 @@ const (
 )
 
 type LogMessage struct {
-	Device string
-	Text   string
-	Level  Loglevel
+	Timestamp time.Time
+	Device    string
+	Text      string
+	Level     Loglevel
 }
 
 type LoggingDB struct {
@@ -49,7 +51,7 @@ func GetLoggingDB(config timeseries.DBConfig) *LoggingDB {
 		}
 
 		sqlStr := `CREATE TABLE IF NOT EXISTS logs (
-			timestamp ` + timeStampStr + ` DEFAULT CURRENT_TIMESTAMP,
+			timestamp ` + timeStampStr + ` DEFAULT (datetime('subsec')),
 			device TEXT NOT NULL,
 			text TEXT DEFAULT '',
 			level INTEGER DEFAULT 2,
@@ -115,15 +117,27 @@ func (l *LoggingDB) GetLogMessages(limit int) ([]LogMessage, error) {
 
 	var messages []LogMessage
 	for rows.Next() {
-		var msg LogMessage
-		var timestamp string // Not used currently
+		var timestamp string
+		var device string
+		var text string
 		var level int
-		if err := rows.Scan(&timestamp, &msg.Device, &msg.Text, &level); err != nil {
+		if err := rows.Scan(&timestamp, &device, &text, &level); err != nil {
 			logger.Errorf("failed to scan log message:%v", err)
 			return nil, err
 		}
-		msg.Level = Loglevel(level)
-		messages = append(messages, msg)
+		logLevel := Loglevel(level)
+		t, err := time.Parse(time.RFC3339Nano, timestamp)
+		if err != nil {
+			logger.Errorf("failed to parse timestamp:%v", err)
+			return nil, err
+		}
+		messages = append(messages,
+			LogMessage{
+				Timestamp: t,
+				Device:    device,
+				Text:      text,
+				Level:     logLevel,
+			})
 	}
 	if err := rows.Err(); err != nil {
 		logger.Errorf("error iterating over log messages:%v", err)

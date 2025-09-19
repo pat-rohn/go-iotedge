@@ -3,6 +3,7 @@ package iotedge
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +13,94 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func (s *IoTEdge) SaveTimeseries(c *gin.Context) {
+// Add these structs with your other struct definitions
+type LoginRequest struct {
+	Password string `json:"password"`
+}
+
+type DashboardResponse struct {
+	Logs []LogMessage `json:"Logs"`
+}
+
+func (s *IoTEdge) LoginPageHandler(c *gin.Context) {
+	c.HTML(http.StatusOK, "login.html", gin.H{})
+}
+
+func (s *IoTEdge) DashboardHandler(c *gin.Context) {
+	logFields := log.Fields{"fnct": "DashboardHandler"}
+
+	logs, err := GetLoggingDB(s.IoTConfig.DbConfig).GetLogMessages(100)
+	if err != nil {
+		log.WithFields(logFields).Errorf("Failed to get log messages: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve logs"})
+		return
+	}
+	devices, err := s.DeviceDB.GetDevicesConfigs()
+	if err != nil {
+		log.WithFields(logFields).Errorf("Failed to get devices: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve devices"})
+		return
+	}
+
+	if c.GetHeader("Accept") == "application/json" {
+		c.JSON(http.StatusOK, DashboardResponse{Logs: logs})
+		return
+	}
+
+	c.HTML(http.StatusOK, "dashboard.html", gin.H{
+		"Logs":    logs,
+		"Devices": devices,
+	})
+}
+
+// Add these handler functions
+func (s *IoTEdge) LoginHandler(c *gin.Context) {
+	logFields := log.Fields{"fnct": "LoginHandler"}
+	var loginReq LoginRequest
+
+	if err := c.BindJSON(&loginReq); err != nil {
+		log.WithFields(logFields).Errorf("Failed to bind JSON: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	if loginReq.Password != defaultPassword {
+		log.WithFields(logFields).Warn("Invalid password attempt")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	// Create session token (in production, use proper session management)
+	token := "session-" + fmt.Sprintf("%d", time.Now().Unix())
+
+	// Set cookie
+	c.SetCookie(sessionToken, token, 3600, "/", "", false, true)
+
+	log.WithFields(logFields).Info("Successful login")
+	c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
+}
+
+func (s *IoTEdge) AuthenticationHandler(c *gin.Context) {
+	logFields := log.Fields{"fnct": "AuthenticationHandler"}
+
+	token, err := c.Cookie(sessionToken)
+	if err != nil {
+		log.WithFields(logFields).Warn("No session token found")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// In production, validate token properly
+	if !strings.HasPrefix(token, "session-") {
+		log.WithFields(logFields).Warn("Invalid session token")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid session"})
+		return
+	}
+
+	c.Next()
+}
+
+func (s *IoTEdge) SaveTimeseriesHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "SaveTimeseries"}
 	var data []timeseries.TimeseriesImportStruct
 
@@ -72,7 +160,7 @@ func (s *IoTEdge) UploadDataHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Success"})
 }
 
-func (s *IoTEdge) InitDevice(c *gin.Context) {
+func (s *IoTEdge) InitDeviceHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "InitDevice"}
 	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 
@@ -101,7 +189,7 @@ func (s *IoTEdge) InitDevice(c *gin.Context) {
 	c.JSON(http.StatusOK, dev)
 }
 
-func (s *IoTEdge) ConfigureDevice(c *gin.Context) {
+func (s *IoTEdge) ConfigureDeviceHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "ConfigureDevice"}
 	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 
@@ -129,7 +217,7 @@ func (s *IoTEdge) ConfigureDevice(c *gin.Context) {
 	c.JSON(http.StatusOK, dev)
 }
 
-func (s *IoTEdge) ConfSensor(c *gin.Context) {
+func (s *IoTEdge) ConfSensorHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "ConfSensor"}
 	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 
@@ -207,7 +295,7 @@ func (s *IoTEdge) UpdateSensorHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Success"})
 }
 
-func (s *IoTEdge) Log(c *gin.Context) {
+func (s *IoTEdge) LogHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "Log"}
 	log.WithFields(logFields).Infof("Got request: %v", c.Request.URL)
 

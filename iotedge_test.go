@@ -357,7 +357,6 @@ func pubMQTTPaho(id int) {
 	}
 	log.Infof("Disconnecting %d\n", id)
 	sensorsClient.Disconnect(250)
-
 }
 
 func TestLogging(t *testing.T) {
@@ -369,23 +368,48 @@ func TestLogging(t *testing.T) {
 	go func() {
 		iot.StartSensorServer(stopper)
 	}()
-
-	time.Sleep(time.Second * 2)
-	logMessage := LogMessage{
-		Level:  Warning,
-		Text:   "test",
-		Device: "device1",
-	}
-	jsonData, err := json.Marshal(logMessage)
-	if err != nil {
-		t.Fatal(err)
-	}
 	client := http.Client{
 		Timeout: 40 * time.Second,
 	}
-	resp, err := client.Post(fmt.Sprintf("http://localhost:%d%s",
-		iot.Port, URILogging), "application/json",
-		bytes.NewBuffer(jsonData))
+	time.Sleep(time.Second * 2)
+	wg := sync.WaitGroup{}
+	for i := range 10 {
+		time.Sleep(100 * time.Nanosecond)
+		name := fmt.Sprintf("DummyOnlyDev%d-%s", i, uuid.New())
+
+		wg.Go(func() {
+			for j := range 10 {
+
+				logMessage := LogMessage{
+					Level:  Warning,
+					Text:   "test" + fmt.Sprintf(" %d-%d", i, j),
+					Device: name,
+				}
+				jsonData, err := json.Marshal(logMessage)
+				if err != nil {
+					t.Error(err)
+				}
+
+				resp, err := client.Post(fmt.Sprintf("http://localhost:%d%s",
+					iot.Port, URILogging), "application/json",
+					bytes.NewBuffer(jsonData))
+				if err != nil {
+					t.Error(err)
+				}
+				time.Sleep(time.Millisecond * 50)
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					t.Errorf("Failed with status: %s", resp.Status)
+				}
+			}
+
+		})
+
+	}
+	wg.Wait()
+	time.Sleep(time.Second * 2)
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d%s",
+		iot.Port, URIDashboard))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,6 +417,7 @@ func TestLogging(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("Failed with status: %s", resp.Status)
 	}
+
 	stopper <- true
 	time.Sleep(time.Second * 2)
 }

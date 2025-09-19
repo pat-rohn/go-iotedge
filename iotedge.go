@@ -12,6 +12,11 @@ import (
 	"github.com/spf13/viper"
 )
 
+const (
+	defaultPassword = "123"
+	sessionToken    = "iot-session-token"
+)
+
 type IoTConfig struct {
 	Port                int
 	MQTTPort            int
@@ -33,6 +38,11 @@ func New(iotConfig IoTConfig) IoTEdge {
 	if err := s.DeviceDB.CreateTimeseriesTable(iotConfig.TimeseriesTable); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
+	loggerDB := GetLoggingDB(iotConfig.DbConfig)
+	if loggerDB == nil {
+		log.Fatalf("failed to create logging DB")
+	}
+	log.WithFields(logFields).Infoln("IoTEdge created")
 	return s
 }
 
@@ -90,13 +100,23 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
 	router := gin.Default()
 
+	// Load HTML templates
+	router.LoadHTMLGlob("templates/*.html")
+
+	// Serve static files
+	router.Static("/static", "./templates/static")
+
+	router.GET("/", s.LoginPageHandler)
+	router.POST(URILogin, s.LoginHandler)
+	router.GET(URIDashboard, s.AuthenticationHandler, s.DashboardHandler)
+
 	router.POST(URIUploadData, s.UploadDataHandler)
-	router.POST(URISaveTimeseries, s.SaveTimeseries)
-	router.POST(URIInitDevice, s.InitDevice)
+	router.POST(URISaveTimeseries, s.SaveTimeseriesHandler)
+	router.POST(URIInitDevice, s.InitDeviceHandler)
 	router.POST(URIUpdateSensor, s.UpdateSensorHandler)
-	router.POST(URISensorConfigure, s.ConfSensor)
-	router.POST(URIDeviceConfigure, s.ConfigureDevice)
-	router.POST(URILogging, s.Log)
+	router.POST(URISensorConfigure, s.ConfSensorHandler)
+	router.POST(URIDeviceConfigure, s.ConfigureDeviceHandler)
+	router.POST(URILogging, s.LogHandler)
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%v", s.Port),

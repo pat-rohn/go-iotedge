@@ -7,7 +7,11 @@ type IoTEdge struct {
 }
 
 const (
-	HTTPPort           int    = 3004
+	HTTPPort int = 3004
+
+	URILogin     string = "/login"
+	URIDashboard string = "/dashboard"
+
 	URIInitDevice      string = "/init-device"
 	URIUpdateSensor    string = "/update-sensor"
 	URIDeviceConfigure string = "/device/configure"
@@ -56,6 +60,15 @@ type Device struct {
 	Interval    float32
 	Buffer      int
 	Description string
+}
+
+type DeviceConfig struct {
+	ID          int
+	Name        string
+	Interval    float32
+	Buffer      int
+	Description string
+	Sensors     []Sensor
 }
 
 type ConfigureSensorReq struct {

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>IoT Edge Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+  </head>
+  <body>
+    <div class="dashboard-container">
+      <header>
+        <h1>IoT Edge Dashboard</h1>
+        <button id="logout" onclick="logout()">Logout</button>
+      </header>
+      <div class="devices-container">
+        <h2>Devices</h2>
+        <table id="devices-table">
+          <thead>
+            <tr>
+              <th>Device ID</th>
+              <th>Name</th>
+              <th>Description</th>
+              <th>Interval</th>
+              <th>Buffer</th>
+              <th>Sensors</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Devices}}
+            <tr class="device-entry">
+              <td>{{.ID}}</td>
+              <td>{{.Name}}</td>
+              <td>{{.Description}}</td>
+              <td>{{.Interval}}</td>
+              <td>{{.Buffer}}</td>
+              <td>
+                {{range .Sensors}}
+                <div>{{.ID}} ({{.Name}}) ({{.SensorOffset}})</div>
+                {{end}}
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      <div class="logs-container">
+        <h2>Logs</h2>
+        <table id="logs-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Device</th>
+              <th>Message</th>
+              <th>Level</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Logs}}
+            <tr class="log-entry">
+              <td>{{.Timestamp}}</td>
+              <td>{{.Device}}</td>
+              <td>{{.Text}}</td>
+              <td>{{.Level}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </body>
+</html>

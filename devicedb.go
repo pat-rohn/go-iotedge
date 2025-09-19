@@ -175,6 +175,65 @@ func (devDB *DeviceDB) GetDevice(name string) (Device, error) {
 	return dev, err
 }
 
+func (devDB *DeviceDB) GetDevices() ([]Device, error) {
+	logFields := log.Fields{"fnct": "GetDevices"}
+	log.WithFields(logFields).Infoln("Find all devices")
+
+	rows, err := devDB.ExecuteQuery("SELECT id, name, description, intervall, buffer FROM devices")
+	if err != nil {
+		return []Device{}, err
+	}
+	defer rows.Close()
+
+	var devices []Device
+	for rows.Next() {
+		var dev Device
+		err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Buffer, &dev.Interval)
+		if err != nil {
+			log.WithFields(logFields).Errorf("Failed to scan device %v", err)
+			continue
+		}
+		log.WithFields(logFields).Infof("Device found %+v", dev)
+		devices = append(devices, dev)
+	}
+	if err = rows.Err(); err != nil {
+		return []Device{}, err
+	}
+	return devices, err
+}
+
+func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
+	logFields := log.Fields{"fnct": "GetDevicesConfigs"}
+	log.WithFields(logFields).Infoln("Find all devices")
+	devices, err := devDB.GetDevices()
+	if err != nil {
+		return []DeviceConfig{}, err
+	}
+	if len(devices) == 0 {
+		return []DeviceConfig{}, nil
+	}
+
+	var deviceConfigs []DeviceConfig
+	for _, dev := range devices {
+		log.WithFields(logFields).Infof("Device found %+v", dev)
+		sensors, err := devDB.GetSensors(dev.ID)
+		if err != nil {
+			log.WithFields(logFields).Errorf("Failed to get sensors for device %s: %v", dev.Name, err)
+			continue
+		}
+		deviceConfigs = append(deviceConfigs, DeviceConfig{
+			ID:          dev.ID,
+			Name:        dev.Name,
+			Description: dev.Description,
+			Interval:    dev.Interval,
+			Buffer:      dev.Buffer,
+			Sensors:     sensors})
+
+	}
+	return deviceConfigs, nil
+
+}
+
 func (devDB *DeviceDB) GetSensors(deviceID int) ([]Sensor, error) {
 	logFields := log.Fields{"fnct": "GetSensors"}
 	log.WithFields(logFields).Infof("%d", deviceID)

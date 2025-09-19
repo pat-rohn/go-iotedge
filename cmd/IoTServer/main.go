@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 
 	iotedge "github.com/pat-rohn/go-iotedge"
@@ -11,6 +12,7 @@ import (
 )
 
 var loglevel string
+var workDir string
 
 func initGlobalFlags() {
 	switch loglevel {
@@ -42,7 +44,12 @@ func main() {
 		Short: "",
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
-
+			if workDir != "." {
+				if err := os.Chdir(workDir); err != nil {
+					log.Fatalf("Failed to change working directory: %v", err)
+				}
+				log.Infof("Changed working directory to: %s", workDir)
+			}
 			if err := startServer(); err != nil {
 				return err
 			}
@@ -135,6 +142,8 @@ func main() {
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&loglevel, "verbose", "v", "w", "verbosity")
+	rootCmd.PersistentFlags().StringVarP(&workDir, "workdir", "w", ".", "working directory")
+	// Add this before executing commands
 
 	rootCmd.AddCommand(startServerCmd)
 	rootCmd.AddCommand(mqttServerCmd)

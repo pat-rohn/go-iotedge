@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>IoT Edge Login</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="login-box">
+            <h2>IoT Edge Login</h2>
+            <form id="loginForm">
+                <div class="input-group">
+                    <input type="password" id="password" placeholder="Password" required>
+                </div>
+                <button type="submit">Login</button>
+            </form>
+            <div id="error-message" class="error"></div>
+        </div>
+    </div>
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password: password })
+                });
+                if (response.ok) {
+                    window.location.href = '/dashboard';
+                } else {
+                    document.getElementById('error-message').textContent = 'Invalid password';
+                }
+            } catch (error) {
+                document.getElementById('error-message').textContent = 'Login failed';
+            }
+        });
+    </script>
+</body>
+</html>
