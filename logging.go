@@ -44,19 +44,19 @@ func GetLoggingDB(config timeseries.DBConfig) *LoggingDB {
 		}
 		loggingDB = &LoggingDB{conf: config}
 		loggingDB.DbHandler = dbhandler
-		timeStampStr := "DATETIME"
+		timeStampStr := "DATETIME DEFAULT (datetime('subsec'))"
 
 		if config.UsePostgres {
-			timeStampStr = "TIMESTAMP"
+			timeStampStr = "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"
 		}
-
 		sqlStr := `CREATE TABLE IF NOT EXISTS logs (
-			timestamp ` + timeStampStr + ` DEFAULT (datetime('subsec')),
+			timestamp ` + timeStampStr + ` ,
 			device TEXT NOT NULL,
 			text TEXT DEFAULT '',
 			level INTEGER DEFAULT 2,
 			PRIMARY KEY (timestamp, device)
 );`
+		logger.Infoln(sqlStr)
 		if _, err := loggingDB.ExecuteQuery(sqlStr); err != nil {
 			logger.Fatalf("failed to create logging table:%v", err)
 		}
@@ -96,8 +96,14 @@ func (l *LoggingDB) InsertLogMessage(msg LogMessage) error {
 	logger := log.WithFields(log.Fields{"fnct": "InsertLogMessage",
 		"device": msg.Device, "level": msg.Level})
 	logger.Infof("Insert log message into DB")
-	sqlStr := `INSERT INTO logs (device, text, level) 
-               VALUES (?, ?, ?)`
+	var sqlStr string
+	if l.conf.UsePostgres {
+		sqlStr = `INSERT INTO logs (device, text, level) 
+                  VALUES ($1, $2, $3)`
+	} else {
+		sqlStr = `INSERT INTO logs (device, text, level) 
+                  VALUES (?, ?, ?)`
+	}
 	if _, err := l.ExecuteQuery(sqlStr, msg.Device, msg.Text, int(msg.Level)); err != nil {
 		logger.Errorf("failed to insert log message:%v", err)
 		return err
@@ -107,7 +113,12 @@ func (l *LoggingDB) InsertLogMessage(msg LogMessage) error {
 func (l *LoggingDB) GetLogMessages(limit int) ([]LogMessage, error) {
 	logger := log.WithFields(log.Fields{"fnct": "GetLogMessages", "limit": limit})
 	logger.Infof("Get log messages from DB")
-	sqlStr := `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC LIMIT ?;`
+	var sqlStr string
+	if l.conf.UsePostgres {
+		sqlStr = `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC LIMIT $1;`
+	} else {
+		sqlStr = `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC LIMIT ?;`
+	}
 	rows, err := l.ExecuteQuery(sqlStr, limit)
 	if err != nil {
 		logger.Errorf("failed to get log messages:%v", err)

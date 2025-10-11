@@ -3,9 +3,9 @@ package iotedge
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 
 	"github.com/pat-rohn/timeseries"
@@ -53,8 +53,8 @@ func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 	})
 }
 
-// Add these handler functions
-func (s *IoTEdge) LoginHandler(c *gin.Context) {
+func (w *IoTEdge) performLogin(c *gin.Context) {
+
 	logFields := log.Fields{"fnct": "LoginHandler"}
 	var loginReq LoginRequest
 
@@ -64,39 +64,26 @@ func (s *IoTEdge) LoginHandler(c *gin.Context) {
 		return
 	}
 
-	if loginReq.Password != defaultPassword {
-		log.WithFields(logFields).Warn("Invalid password attempt")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-		return
+	// Hardcoded credentials for demo
+	if loginReq.Password == w.password {
+		session := sessions.Default(c)
+		session.Set("user", "any")
+		session.Save()
+		c.Redirect(http.StatusFound, "/dashboard")
+	} else {
+		c.String(http.StatusUnauthorized, "Incorrect credentials")
 	}
-
-	// Create session token (in production, use proper session management)
-	token := "session-" + fmt.Sprintf("%d", time.Now().Unix())
-
-	// Set cookie
-	c.SetCookie(sessionToken, token, 3600, "/", "", false, true)
-
-	log.WithFields(logFields).Info("Successful login")
-	c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
 }
 
 func (s *IoTEdge) AuthenticationHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "AuthenticationHandler"}
 
-	token, err := c.Cookie(sessionToken)
-	if err != nil {
-		log.WithFields(logFields).Warn("No session token found")
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+	session := sessions.Default(c)
+	user := session.Get("user")
+	if user == nil {
+		c.Redirect(http.StatusFound, "/")
+		c.Abort()
 		return
 	}
-
-	// In production, validate token properly
-	if !strings.HasPrefix(token, "session-") {
-		log.WithFields(logFields).Warn("Invalid session token")
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid session"})
-		return
-	}
-
 	c.Next()
 }
 

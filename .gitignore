@@ -6,3 +6,7 @@ config.db-journal
 timeseries.db
 timeseries.db-journal
 .vscode/launch.json
+key.pem
+**/__debug_*
+cert.pem
+iot.db

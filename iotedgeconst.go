@@ -1,9 +1,13 @@
 package iotedge
 
+import "github.com/gin-contrib/sessions/cookie"
+
 type IoTEdge struct {
 	Port      int
 	IoTConfig IoTConfig
 	DeviceDB  *DeviceDB
+	store     cookie.Store
+	password  string
 }
 
 const (
@@ -18,7 +22,7 @@ const (
 	URISensorConfigure string = "/sensor/configure"
 	URIUploadData      string = "/upload-data"
 	URISaveTimeseries  string = "/timeseries/save"
-	URILogging         string = "/log"
+	URILogging         string = "/api/log"
 )
 
 type Output struct {
