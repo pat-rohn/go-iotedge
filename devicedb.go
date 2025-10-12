@@ -53,7 +53,7 @@ func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
 			buffer 		INTEGER DEFAULT 2
 		   );
 		 `
-		if _, err := deviceDB.ExecuteQuery(sqlStr); err != nil {
+		if err := deviceDB.Execute(sqlStr); err != nil {
 			logger.Fatalf("failed to create devices table:%v", err)
 		}
 		sqlStr = `CREATE TABLE IF NOT EXISTS sensors (
@@ -64,7 +64,7 @@ func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
 		sensor_offset			` + numericType + ` DEFAULT 0
 	   );
 	 `
-		if _, err := deviceDB.ExecuteQuery(sqlStr); err != nil {
+		if err := deviceDB.Execute(sqlStr); err != nil {
 			logger.Fatalf("failed to create sensors table:%v", err)
 		}
 	})
@@ -134,6 +134,7 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 		log.WithFields(logFields).Errorf("Reading device after inserting failed: %v", err)
 		return dev, err
 	}
+	defer rows.Close()
 	for rows.Next() {
 		if err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Buffer, &dev.Interval); err != nil {
 			log.WithFields(logFields).Errorf("Scan failed: %v", err)
@@ -261,7 +262,7 @@ func (devDB *DeviceDB) Configure(dev Device) error {
 	logFields := log.Fields{"fnct": "Configure", "device": dev.Name}
 	log.WithFields(logFields).Infof("Configure device '%s' with interval/buffer: %v/%v ",
 		dev.Name, dev.Interval, dev.Buffer)
-	_, err := devDB.ExecuteQuery("UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?", dev.Description, dev.Buffer, dev.Interval, dev.ID)
+	err := devDB.Execute("UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?", dev.Description, dev.Buffer, dev.Interval, dev.ID)
 	if err != nil {
 		log.WithFields(logFields).Errorf("exec failed: %v)", err)
 		return err
@@ -274,7 +275,7 @@ func (devDB *DeviceDB) ConfigureSensor(sensor Sensor) error {
 	logFields := log.Fields{"fnct": "ConfigureSensor"}
 	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ",
 		sensor.Name, sensor.SensorOffset)
-	_, err := devDB.ExecuteQuery("UPDATE sensors SET name = ? , sensor_offset = ?  WHERE deviceid = ?",
+	err := devDB.Execute("UPDATE sensors SET name = ? , sensor_offset = ?  WHERE deviceid = ?",
 		sensor.Name, sensor.SensorOffset, sensor.DeviceID)
 	if err != nil {
 		log.WithFields(logFields).Errorf("exec failed: %v", err)
@@ -289,7 +290,7 @@ func (devDB *DeviceDB) insertDevice(device Device) error {
 	logFields := log.Fields{"fnct": "insertDevice", "device": device.Name}
 	log.WithFields(logFields).Infof("%s", device.Name)
 
-	_, err := devDB.ExecuteQuery("INSERT INTO devices (name) VALUES (?)", device.Name)
+	err := devDB.Execute("INSERT INTO devices (name) VALUES (?)", device.Name)
 	if err != nil {
 		log.WithFields(logFields).Error(err)
 		return err
@@ -300,7 +301,7 @@ func (devDB *DeviceDB) insertDevice(device Device) error {
 func (devDB *DeviceDB) InsertSensor(sensor Sensor) error {
 	logFields := log.Fields{"fnct": "insertSensor", "sensor": sensor.Name}
 	log.WithFields(logFields).Infof("%s", sensor.Name)
-	_, err := devDB.ExecuteQuery("INSERT INTO sensors (name,deviceid) VALUES (?,?)", sensor.Name, sensor.DeviceID)
+	err := devDB.Execute("INSERT INTO sensors (name,deviceid) VALUES (?,?)", sensor.Name, sensor.DeviceID)
 	if err != nil {
 		log.WithFields(logFields).Error(err)
 		return err
