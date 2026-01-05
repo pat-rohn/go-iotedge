@@ -83,7 +83,8 @@ func GetConfig() IoTConfig {
 	viper.SetConfigType("json")
 	dirname, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatal(err)
+		log.Error(err)
+		dirname = "."
 	}
 	pathToConfig := dirname + "/.iotserver"
 	viper.AddConfigPath(pathToConfig)
