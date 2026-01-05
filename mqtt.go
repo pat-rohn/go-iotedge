@@ -54,18 +54,24 @@ func (h *TimeseriesHandler) handleMessage(client mqtt.Client, msg mqtt.Message) 
 }
 
 func (h *TimeseriesHandler) processData(topic string, payload string) {
+	logger := log.WithFields(log.Fields{"topic": topic})
 	splittedTopic := strings.Split(topic, "/")
 	if len(splittedTopic) <= 2 {
-		log.Errorf("No valid data to store into the dabase: %v", splittedTopic)
+		logger.Errorf("No valid data to store into the dabase: %v", splittedTopic)
 		return
 	}
 	uniqueID := splittedTopic[len(splittedTopic)-2]
-	log.Tracef("Received message: %s from topic: %s (%s)\n", string(payload), uniqueID, splittedTopic)
+	logger = logger.WithField("uniqueID", uniqueID)
+	logger.Tracef("Received message: %s from topic: %s (%s)\n", string(payload), uniqueID, splittedTopic)
+	if splittedTopic[len(splittedTopic)-1] != "data" {
+		logger.Infof("Received unhandled topic: %v", payload)
+	}
 	_, err := strconv.ParseFloat(string(payload), 32)
 	if err != nil {
-		log.Errorf("Not a valid number: %v", payload)
+		logger.Errorf("Not a valid number: %v", payload)
 		return
 	}
+
 	timestamp := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	h.dataMutex.Lock()
 	defer h.dataMutex.Unlock()
@@ -74,14 +80,14 @@ func (h *TimeseriesHandler) processData(topic string, payload string) {
 		if ts.Tag == uniqueID {
 			ts.Values = append(ts.Values, string(payload))
 			ts.Timestamps = append(ts.Timestamps, timestamp)
-			log.Tracef("exists %s (%v) %v", uniqueID, len(ts.Values), ts.Values)
+			logger.Tracef("exists %s (%v) %v", uniqueID, len(ts.Values), ts.Values)
 			//log.Tracef("exists %s (%v) %v", uniqueID, ts.Values, ts.Timestamps)
 
 			return
 		}
 	}
 
-	log.Tracef("new %s", uniqueID)
+	logger.Tracef("new %s", uniqueID)
 	h.data = append(h.data, &timeseries.TimeseriesImportStruct{
 		Tag:        uniqueID,
 		Values:     []string{string(payload)},
@@ -174,6 +180,20 @@ func StartMQTTBroker(port int, config IoTConfig) {
 	sub(databaseClient, "+/+/+/data")
 	sub(databaseClient, "+/+/data")
 	sub(databaseClient, "+/data")
+
+	sub(databaseClient, "+/+/+/+/+/+/json/set")
+	sub(databaseClient, "+/+/+/+/+/json/set")
+	sub(databaseClient, "+/+/+/+/json/set")
+	sub(databaseClient, "+/+/+/json/set")
+	sub(databaseClient, "+/+/json/set")
+	sub(databaseClient, "+/json/set")
+
+	sub(databaseClient, "+/+/+/+/+/+/json/status")
+	sub(databaseClient, "+/+/+/+/+/json/status")
+	sub(databaseClient, "+/+/+/+/json/status")
+	sub(databaseClient, "+/+/+/json/status")
+	sub(databaseClient, "+/+/json/status")
+	sub(databaseClient, "+/json/status")
 	go publishPing(databaseClient, "/server/ping/data")
 
 	nextUploadTime := time.Now().Add(time.Second * time.Duration(config.UploadInterval))
