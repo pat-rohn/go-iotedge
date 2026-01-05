@@ -32,6 +32,7 @@ var (
 )
 
 type IoTConfig struct {
+	Verbosity           string
 	Port                int
 	MQTTPort            int
 	MQTTRedirectAddress string
@@ -62,6 +63,13 @@ func New(iotConfig IoTConfig) IoTEdge {
 
 func GetConfig() IoTConfig {
 	logFields := log.Fields{"fnct": "GetConfig"}
+
+	viper.SetDefault("Verbosity", "i")
+	viper.SetDefault("Port", 3004)
+	viper.SetDefault("MQTTPort", 1883)
+	viper.SetDefault("MQTTRedirectAddress", "")
+	viper.SetDefault("UploadInterval", 30)
+
 	viper.SetDefault("DBConfig.Name", "iot.db")
 	viper.SetDefault("DBConfig.IPOrPath", "./")
 	viper.SetDefault("DBConfig.UsePostgres", false)
@@ -70,11 +78,6 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("DBConfig.Port", 5432)
 	viper.SetDefault("DBConfig.TableName", "configs")
 	viper.SetDefault("TimeseriesTable", "measurements")
-
-	viper.SetDefault("Port", 3004)
-	viper.SetDefault("MQTTPort", 1883)
-	viper.SetDefault("MQTTRedirectAddress", "")
-	viper.SetDefault("UploadInterval", 30)
 
 	viper.SetConfigName("iot")
 	viper.SetConfigType("json")

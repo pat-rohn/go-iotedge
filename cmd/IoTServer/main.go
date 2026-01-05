@@ -64,6 +64,13 @@ func main() {
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			conf := iotedge.GetConfig()
+			logLevel, err := log.ParseLevel(conf.Verbosity)
+			if err != nil {
+				log.Error(err)
+			} else {
+				log.SetLevel(logLevel)
+			}
+
 			iotedge.StartMQTTBroker(conf.MQTTPort, conf)
 
 			return nil
@@ -168,6 +175,12 @@ func CreateTimeseriesTable() error {
 
 func startServer() error {
 	config := iotedge.GetConfig()
+	logLevel, err := log.ParseLevel(config.Verbosity)
+	if err != nil {
+		log.Error(err)
+	} else {
+		log.SetLevel(logLevel)
+	}
 	iot := iotedge.New(config)
 
 	stopChan := make(chan bool, 1)
