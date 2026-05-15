@@ -64,7 +64,7 @@ func New(iotConfig IoTConfig) IoTEdge {
 func GetConfig() IoTConfig {
 	logFields := log.Fields{"fnct": "GetConfig"}
 
-	viper.SetDefault("Verbosity", "i")
+	viper.SetDefault("Verbosity", "info")
 	viper.SetDefault("Port", 3004)
 	viper.SetDefault("MQTTPort", 1883)
 	viper.SetDefault("MQTTRedirectAddress", "")
