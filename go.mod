@@ -2,6 +2,8 @@ module github.com/pat-rohn/go-iotedge
 
 go 1.25.0
 
+replace github.com/pat-rohn/timeseries v1.0.6 => ../timeseries
+
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/gin-contrib/sessions v1.0.4

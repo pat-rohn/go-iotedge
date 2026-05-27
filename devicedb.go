@@ -112,7 +112,7 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	hasDevice := deviceRows.Next() // is unique
 	if hasDevice {
 		log.WithFields(logFields).Infoln("Device already initialized")
-		if err := deviceRows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Buffer, &dev.Interval); err != nil {
+		if err := deviceRows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer); err != nil {
 			return Device{}, err
 		}
 		if err = deviceRows.Err(); err != nil {
@@ -136,7 +136,7 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		if err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Buffer, &dev.Interval); err != nil {
+		if err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer); err != nil {
 			log.WithFields(logFields).Errorf("Scan failed: %v", err)
 			return dev, err
 		}
@@ -162,7 +162,7 @@ func (devDB *DeviceDB) GetDevice(name string) (Device, error) {
 
 	var dev Device
 	for rows.Next() {
-		err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Buffer, &dev.Interval)
+		err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer)
 		if err != nil {
 			log.WithFields(logFields).Errorf("Failed to scan device %v", err)
 			return Device{}, fmt.Errorf("failed to scan device %v", err)
@@ -189,7 +189,7 @@ func (devDB *DeviceDB) GetDevices() ([]Device, error) {
 	var devices []Device
 	for rows.Next() {
 		var dev Device
-		err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Buffer, &dev.Interval)
+		err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer)
 		if err != nil {
 			log.WithFields(logFields).Errorf("Failed to scan device %v", err)
 			continue
@@ -275,8 +275,8 @@ func (devDB *DeviceDB) ConfigureSensor(sensor Sensor) error {
 	logFields := log.Fields{"fnct": "ConfigureSensor"}
 	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ",
 		sensor.Name, sensor.SensorOffset)
-	err := devDB.Execute("UPDATE sensors SET name = ? , sensor_offset = ?  WHERE deviceid = ?",
-		sensor.Name, sensor.SensorOffset, sensor.DeviceID)
+	err := devDB.Execute("UPDATE sensors SET sensor_offset = ? WHERE deviceid = ? AND name = ?",
+		sensor.SensorOffset, sensor.DeviceID, sensor.Name)
 	if err != nil {
 		log.WithFields(logFields).Errorf("exec failed: %v", err)
 		return err

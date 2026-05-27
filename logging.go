@@ -99,10 +99,10 @@ func (l *LoggingDB) InsertLogMessage(msg LogMessage) error {
 	logger.Infof("Insert log message into DB")
 	var sqlStr string
 	if l.conf.UsePostgres {
-		sqlStr = `INSERT INTO logs (device, text, level) 
+		sqlStr = `INSERT INTO logs (device, text, level)
                   VALUES ($1, $2, $3)`
 	} else {
-		sqlStr = `INSERT INTO logs (device, text, level) 
+		sqlStr = `INSERT INTO logs (device, text, level)
                   VALUES (?, ?, ?)`
 	}
 	if err := l.Execute(sqlStr, msg.Device, msg.Text, int(msg.Level)); err != nil {
@@ -138,10 +138,23 @@ func (l *LoggingDB) GetLogMessages(limit int) ([]LogMessage, error) {
 			return nil, err
 		}
 		logLevel := Loglevel(level)
-		t, err := time.Parse(time.RFC3339Nano, timestamp)
-		if err != nil {
-			logger.Errorf("failed to parse timestamp:%v", err)
-			return nil, err
+		var t time.Time
+		var parseErr error
+		if l.conf.UsePostgres {
+			t, parseErr = time.Parse(time.RFC3339Nano, timestamp)
+			if parseErr != nil {
+				t, parseErr = time.Parse(time.RFC3339, timestamp)
+			}
+		} else {
+			// SQLite datetime('subsec') produces "YYYY-MM-DD HH:MM:SS.SSS"
+			t, parseErr = time.Parse("2006-01-02 15:04:05.999999999", timestamp)
+			if parseErr != nil {
+				t, parseErr = time.Parse("2006-01-02 15:04:05", timestamp)
+			}
+		}
+		if parseErr != nil {
+			logger.Errorf("failed to parse timestamp %q: %v", timestamp, parseErr)
+			return nil, parseErr
 		}
 		messages = append(messages,
 			LogMessage{
