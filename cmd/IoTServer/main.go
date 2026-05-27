@@ -70,9 +70,7 @@ func main() {
 			} else {
 				log.SetLevel(logLevel)
 			}
-
 			iotedge.StartMQTTBroker(conf.MQTTPort, conf)
-
 			return nil
 		},
 	}
@@ -105,7 +103,6 @@ func main() {
 				return err
 			}
 			edge := iotedge.New(iotedge.GetConfig())
-
 			dev, err := edge.DeviceDB.GetDevice(args[0])
 			if err != nil {
 				return err
@@ -131,7 +128,6 @@ func main() {
 			}
 			sensorName := args[1]
 			edge := iotedge.New(iotedge.GetConfig())
-
 			iotDevice, err := edge.DeviceDB.GetDevice(args[0])
 			if err != nil {
 				return err
@@ -148,9 +144,9 @@ func main() {
 		},
 	}
 
+	// Fix #20: --workdir shorthand changed from "w" to "d" to avoid conflict with --verbose's "v"/"w".
 	rootCmd.PersistentFlags().StringVarP(&loglevel, "verbose", "v", "w", "verbosity")
-	rootCmd.PersistentFlags().StringVarP(&workDir, "workdir", "w", ".", "working directory")
-	// Add this before executing commands
+	rootCmd.PersistentFlags().StringVarP(&workDir, "workdir", "d", ".", "working directory")
 
 	rootCmd.AddCommand(startServerCmd)
 	rootCmd.AddCommand(mqttServerCmd)
@@ -160,7 +156,6 @@ func main() {
 
 	cobra.OnInitialize(initGlobalFlags)
 	rootCmd.Execute()
-
 }
 
 func CreateTimeseriesTable() error {
@@ -182,8 +177,17 @@ func startServer() error {
 		log.SetLevel(logLevel)
 	}
 	iot := iotedge.New(config)
-
 	stopChan := make(chan bool, 1)
-	go iotedge.StartMQTTBroker(config.MQTTPort, config)
+	// Fix #21: wrap the MQTT broker goroutine with panic recovery so that
+	// broker startup failures (which manifest as panics) are logged as fatal
+	// rather than silently crashing an unmonitored goroutine.
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Fatalf("MQTT broker crashed: %v", r)
+			}
+		}()
+		iotedge.StartMQTTBroker(config.MQTTPort, config)
+	}()
 	return iot.StartSensorServer(stopChan)
 }

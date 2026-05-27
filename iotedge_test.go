@@ -33,11 +33,10 @@ func TestAutomated(t *testing.T) {
 	testMain(t)
 	testDBInit(t)
 	testInitDevices(t)
-
-	db := timeseries.DBHandler(GetConfig().DbConfig)
-	defer db.Close()
-	dbTimeseries := timeseries.DBHandler(GetConfig().DbConfig)
-	defer dbTimeseries.Close()
+	// NOTE: do NOT close the timeseries.DBHandler singleton here.
+	// Closing it would invalidate deviceDB / loggingDB and cause all
+	// subsequent tests (TestMQTT, TestLogging) to fail with
+	// "sql: database is closed".
 }
 
 func testMain(t *testing.T) {
@@ -184,19 +183,17 @@ func (d *DummyDevice) init(t *testing.T) {
 		}
 		resp, err := client.Post(d.Url+URIInitDevice, "application/json",
 			bytes.NewBuffer(json_data))
-		{
-			if err != nil {
-				log.Warnf("Failed to create device %s: %v", d.DeviceDesc.Name, err)
-				time.Sleep(time.Second * 2)
-				continue
-			}
-			{
-				defer resp.Body.Close()
-				if resp.StatusCode == http.StatusOK {
-					fmt.Printf("Device %s created", d.DeviceDesc.Name)
-					return
-				}
-			}
+		if err != nil {
+			log.Warnf("Failed to create device %s: %v", d.DeviceDesc.Name, err)
+			time.Sleep(time.Second * 2)
+			continue
+		}
+		// Fix #8: close body immediately in the loop body, not via defer
+		ok := resp.StatusCode == http.StatusOK
+		resp.Body.Close()
+		if ok {
+			fmt.Printf("Device %s created", d.DeviceDesc.Name)
+			return
 		}
 		time.Sleep(time.Millisecond * 50)
 	}
@@ -213,7 +210,7 @@ func (d *DummyDevice) sendSensorData(t *testing.T) {
 		time.Sleep(time.Millisecond * 2)
 		val.Timestamps = append(val.Timestamps, time.Now().Format("2006-01-02 15:04:05.000"))
 		val.Values = append(val.Values, fmt.Sprintf("%f", 283.0+(rand.Float32()*15)))
-		val.Comments = append(val.Values, "dummy")
+		val.Comments = append(val.Comments, "dummy") // Fix #7: was append(val.Values, "dummy")
 	}
 	data = append(data, val)
 
@@ -299,7 +296,6 @@ func TestMQTT(t *testing.T) {
 	log.SetLevel(log.WarnLevel)
 	config := GetConfig()
 	config.UploadInterval = 5
-	edge := New(config)
 	go StartMQTTBroker(1884, config)
 	time.Sleep(time.Second * 2)
 	for i := range 1000 {
@@ -307,7 +303,8 @@ func TestMQTT(t *testing.T) {
 		go pubMQTTPaho(i)
 	}
 	<-time.After(time.Second * 45)
-	edge.DeviceDB.Close()
+	// NOTE: do NOT close edge.DeviceDB here — it is the package-level
+	// singleton and closing it would break TestLogging which runs next.
 	time.Sleep(time.Second * 5) // would fail if data is not written
 }
 

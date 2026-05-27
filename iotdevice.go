@@ -3,10 +3,9 @@ package iotedge
 import (
 	"fmt"
 
-	_ "modernc.org/sqlite"
-
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	_ "modernc.org/sqlite"
 )
 
 func (e *IoTEdge) Init(deviceDesc DeviceDesc) (Device, error) {
@@ -20,27 +19,20 @@ func (e *IoTEdge) Init(deviceDesc DeviceDesc) (Device, error) {
 	if err != nil {
 		return Device{}, fmt.Errorf("failed to get sensors: %v", err)
 	}
-
 	for _, s := range deviceDesc.Sensors {
 		hasSensor := false
 		for _, sensorOld := range sensorsOnDB {
 			if s == sensorOld.Name {
 				hasSensor = true
-				log.WithFields(logFields).Infof("Has sensor %s", s)
 				break
 			}
 		}
 		if !hasSensor {
-			log.WithFields(logFields).Infof("Unknown sensor: %s", s)
-			sensor := Sensor{
-				Name:     s,
-				DeviceID: dev.ID,
-			}
+			sensor := Sensor{Name: s, DeviceID: dev.ID}
 			if err := e.DeviceDB.InsertSensor(sensor); err != nil {
-				log.Errorf("Failed to insert sensor %s: %s", sensor.Name, err)
+				return Device{}, fmt.Errorf("failed to insert sensor %s: %w", sensor.Name, err)
 			}
 		}
 	}
 	return dev, nil
-
 }

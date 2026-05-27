@@ -1,6 +1,7 @@
 package iotedge
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -9,65 +10,97 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// ErrDeviceNotFound is returned by GetDevice when no device matches the given name.
+var ErrDeviceNotFound = errors.New("device not found")
+
 type DeviceDB struct {
 	*timeseries.DbHandler
 	conf timeseries.DBConfig
 }
 
-var onceDeviceDB sync.Once
+// deviceDBMu guards deviceDB, dbhandler, and deviceDBReady so that the
+// handler can be recovered automatically if the underlying connection is
+// closed (e.g. by a test or a graceful shutdown).
+var deviceDBMu sync.Mutex
 var deviceDB *DeviceDB
 var dbhandler *timeseries.DbHandler
+var deviceDBReady bool // true after tables have been created at least once
 
 func CreateDbHandler(config timeseries.DBConfig) *timeseries.DbHandler {
-
 	dbhandler = timeseries.DBHandler(config)
 	return dbhandler
 }
 
+// isDBAlive returns false when dbh is nil or its underlying connection is
+// already closed.  It uses Ping() which is cheap (no round-trip for SQLite).
+func isDBAlive(dbh *timeseries.DbHandler) bool {
+	if dbh == nil {
+		return false
+	}
+	return dbh.DB.Ping() == nil
+}
+
 func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
 	logger := log.WithFields(log.Fields{"fnct": "InitializeDB", "name": config.Name})
-	if dbhandler == nil {
-		dbhandler = CreateDbHandler(config)
-	} else {
+	deviceDBMu.Lock()
+	defer deviceDBMu.Unlock()
+
+	// If the current handler is stale (closed), reset state so we re-open.
+	if !isDBAlive(dbhandler) {
+		if dbhandler != nil {
+			logger.Warnf("DBHandler connection is stale, reinitializing")
+		}
+		// Obtain a fresh connection from the timeseries singleton.  If it was
+		// previously closed, the singleton will have been reset to nil, so
+		// DBHandler() will open a new connection.
+		dbhandler = timeseries.DBHandler(config)
+		if deviceDB != nil {
+			deviceDB.DbHandler = dbhandler
+		}
+	} else if deviceDB != nil {
 		logger.Infof("Reusing existing DBHandler for deviceDB")
 	}
-	onceDeviceDB.Do(func() {
+
+	if !deviceDBReady {
 		logger.Infoln("init")
-		deviceDB = &DeviceDB{conf: config}
+		if deviceDB == nil {
+			deviceDB = &DeviceDB{conf: config}
+		}
 		deviceDB.DbHandler = dbhandler
 		var idStr, numericType string
 		if config.UsePostgres {
-			// Define type strings based on database type
 			idStr = "id SERIAL PRIMARY KEY"
 			numericType = "NUMERIC"
 		} else {
 			idStr = "id INTEGER PRIMARY KEY AUTOINCREMENT"
 			numericType = "NUMBER"
 		}
-
 		sqlStr := `CREATE TABLE IF NOT EXISTS devices (
 			` + idStr + ` ,
 			name        TEXT NOT NULL UNIQUE,
 			description TEXT DEFAULT '',
 			intervall	 ` + numericType + ` DEFAULT 60,
 			buffer 		INTEGER DEFAULT 2
-		   );
-		 `
+		   );`
 		if err := deviceDB.Execute(sqlStr); err != nil {
 			logger.Fatalf("failed to create devices table:%v", err)
 		}
 		sqlStr = `CREATE TABLE IF NOT EXISTS sensors (
 		` + idStr + ` ,
 		deviceid        INTEGER NOT NULL,
-		name			TEXT NOT NULL,
-		description 	TEXT DEFAULT '',
-		sensor_offset			` + numericType + ` DEFAULT 0
-	   );
-	 `
+		name            TEXT NOT NULL,
+		description     TEXT DEFAULT '',
+		sensor_offset   ` + numericType + ` DEFAULT 0,
+		UNIQUE (deviceid, name)
+		   );`
 		if err := deviceDB.Execute(sqlStr); err != nil {
 			logger.Fatalf("failed to create sensors table:%v", err)
 		}
-	})
+		if err := deviceDB.Execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sensors_unique ON sensors(deviceid, name)"); err != nil {
+			logger.Warnf("idx_sensors_unique: %v", err)
+		}
+		deviceDBReady = true
+	}
 	if !compareConfigs(deviceDB.conf, config) {
 		logger.Fatalf("Config must not change %+v to %+v", deviceDB.conf, config)
 		deviceDB.Close()
@@ -95,97 +128,77 @@ func compareConfigs(oldConf, newConf timeseries.DBConfig) bool {
 	if oldConf.UsePostgres != newConf.UsePostgres {
 		return false
 	}
-
 	return true
 }
 
 func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	logFields := log.Fields{"fnct": "GetOrCreateDevice", "device": descr.Name}
-	log.WithFields(logFields).Infoln("Look for device")
+	log.WithFields(logFields).Infoln("GetOrCreateDevice")
 	startTime := time.Now()
-	deviceRows, err := devDB.ExecuteQuery("SELECT * FROM devices WHERE name = ?", descr.Name)
+
+	var insertSQL string
+	if devDB.conf.UsePostgres {
+		insertSQL = "INSERT INTO devices (name) VALUES ($1) ON CONFLICT (name) DO NOTHING"
+	} else {
+		insertSQL = "INSERT OR IGNORE INTO devices (name) VALUES (?)"
+	}
+	if err := devDB.Execute(insertSQL, descr.Name); err != nil {
+		log.WithFields(logFields).Errorf("Upsert device failed: %v", err)
+		return Device{}, err
+	}
+
+	rows, err := devDB.ExecuteQuery("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?", descr.Name)
 	if err != nil {
 		return Device{}, err
 	}
-	defer deviceRows.Close()
-	var dev Device
-	hasDevice := deviceRows.Next() // is unique
-	if hasDevice {
-		log.WithFields(logFields).Infoln("Device already initialized")
-		if err := deviceRows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer); err != nil {
-			return Device{}, err
-		}
-		if err = deviceRows.Err(); err != nil {
-			log.WithFields(logFields).Errorf("Scan failed failed: %v", err)
-			return Device{}, err
-		}
-		log.WithFields(logFields).Infof("Device has ID %d", dev.ID)
-		return dev, nil
-	}
-	log.WithFields(logFields).Infof("Create new device %v", descr.Name)
-	dev.Description = descr.Description
-	dev.Name = descr.Name
-	if err := devDB.insertDevice(dev); err != nil {
-		log.WithFields(logFields).Errorf("Insert device failed: %v", err)
-		return dev, err
-	}
-	rows, err := devDB.ExecuteQuery("SELECT * FROM devices WHERE name = ?", descr.Name)
-	if err != nil {
-		log.WithFields(logFields).Errorf("Reading device after inserting failed: %v", err)
-		return dev, err
-	}
 	defer rows.Close()
-	for rows.Next() {
+	var dev Device
+	if rows.Next() {
 		if err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer); err != nil {
-			log.WithFields(logFields).Errorf("Scan failed: %v", err)
-			return dev, err
+			return Device{}, fmt.Errorf("failed to scan device: %w", err)
 		}
 	}
 	if err = rows.Err(); err != nil {
-		return dev, err
+		return Device{}, err
 	}
-
-	log.WithFields(logFields).Infof("Device has ID %d", dev.ID)
-	log.WithFields(logFields).Warnf("GetOrCreateDevice took %v", time.Since(startTime))
+	log.WithFields(logFields).Infof("Device has ID %d (took %v)", dev.ID, time.Since(startTime))
 	return dev, nil
 }
 
 func (devDB *DeviceDB) GetDevice(name string) (Device, error) {
 	logFields := log.Fields{"fnct": "GetDevice", "name": name}
 	log.WithFields(logFields).Infof("Find device with name %v", name)
-
-	rows, err := devDB.ExecuteQuery("SELECT * FROM devices WHERE name = ?", name)
+	rows, err := devDB.ExecuteQuery("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?", name)
 	if err != nil {
 		return Device{}, err
 	}
 	defer rows.Close()
-
 	var dev Device
+	found := false
 	for rows.Next() {
-		err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer)
-		if err != nil {
-			log.WithFields(logFields).Errorf("Failed to scan device %v", err)
-			return Device{}, fmt.Errorf("failed to scan device %v", err)
+		found = true
+		if err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer); err != nil {
+			return Device{}, fmt.Errorf("failed to scan device: %w", err)
 		}
 		log.WithFields(logFields).Infof("Device found %+v", dev)
 	}
 	if err = rows.Err(); err != nil {
 		return Device{}, err
 	}
-	log.WithFields(logFields).Errorf("Device '%s' not found", name)
-	return dev, err
+	if !found {
+		log.WithFields(logFields).Infof("Device '%s' not found", name)
+		return Device{}, ErrDeviceNotFound
+	}
+	return dev, nil
 }
 
 func (devDB *DeviceDB) GetDevices() ([]Device, error) {
 	logFields := log.Fields{"fnct": "GetDevices"}
-	log.WithFields(logFields).Infoln("Find all devices")
-
 	rows, err := devDB.ExecuteQuery("SELECT id, name, description, intervall, buffer FROM devices")
 	if err != nil {
 		return []Device{}, err
 	}
 	defer rows.Close()
-
 	var devices []Device
 	for rows.Next() {
 		var dev Device
@@ -194,7 +207,6 @@ func (devDB *DeviceDB) GetDevices() ([]Device, error) {
 			log.WithFields(logFields).Errorf("Failed to scan device %v", err)
 			continue
 		}
-		log.WithFields(logFields).Infof("Device found %+v", dev)
 		devices = append(devices, dev)
 	}
 	if err = rows.Err(); err != nil {
@@ -205,39 +217,62 @@ func (devDB *DeviceDB) GetDevices() ([]Device, error) {
 
 func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
 	logFields := log.Fields{"fnct": "GetDevicesConfigs"}
-	log.WithFields(logFields).Infoln("Find all devices")
-	devices, err := devDB.GetDevices()
+	log.WithFields(logFields).Infoln("Find all devices with sensors via JOIN")
+	rows, err := devDB.ExecuteQuery(`
+		SELECT d.id, d.name, d.description, d.intervall, d.buffer,
+		       s.id, s.deviceid, s.name, s.sensor_offset
+		FROM devices d
+		LEFT JOIN sensors s ON s.deviceid = d.id
+		ORDER BY d.id`)
 	if err != nil {
-		return []DeviceConfig{}, err
+		return nil, err
 	}
-	if len(devices) == 0 {
-		return []DeviceConfig{}, nil
-	}
+	defer rows.Close()
 
-	var deviceConfigs []DeviceConfig
-	for _, dev := range devices {
-		log.WithFields(logFields).Infof("Device found %+v", dev)
-		sensors, err := devDB.GetSensors(dev.ID)
-		if err != nil {
-			log.WithFields(logFields).Errorf("Failed to get sensors for device %s: %v", dev.Name, err)
-			continue
+	configMap := make(map[int]*DeviceConfig)
+	var order []int
+
+	for rows.Next() {
+		var (
+			dID       int
+			dName     string
+			dDesc     string
+			dInterval float32
+			dBuffer   int
+			sID       *int
+			sDeviceID *int
+			sName     *string
+			sOffset   *float32
+		)
+		if err := rows.Scan(&dID, &dName, &dDesc, &dInterval, &dBuffer,
+			&sID, &sDeviceID, &sName, &sOffset); err != nil {
+			log.WithFields(logFields).Errorf("Failed to scan row: %v", err)
+			return nil, err
 		}
-		deviceConfigs = append(deviceConfigs, DeviceConfig{
-			ID:          dev.ID,
-			Name:        dev.Name,
-			Description: dev.Description,
-			Interval:    dev.Interval,
-			Buffer:      dev.Buffer,
-			Sensors:     sensors})
-
+		if _, exists := configMap[dID]; !exists {
+			configMap[dID] = &DeviceConfig{
+				ID: dID, Name: dName, Description: dDesc,
+				Interval: dInterval, Buffer: dBuffer,
+			}
+			order = append(order, dID)
+		}
+		if sID != nil {
+			configMap[dID].Sensors = append(configMap[dID].Sensors, Sensor{
+				ID: *sID, DeviceID: *sDeviceID, Name: *sName, SensorOffset: *sOffset,
+			})
+		}
 	}
-	return deviceConfigs, nil
-
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	result := make([]DeviceConfig, 0, len(order))
+	for _, id := range order {
+		result = append(result, *configMap[id])
+	}
+	return result, nil
 }
 
 func (devDB *DeviceDB) GetSensors(deviceID int) ([]Sensor, error) {
-	logFields := log.Fields{"fnct": "GetSensors"}
-	log.WithFields(logFields).Infof("%d", deviceID)
 	var sensors []Sensor
 	rows, err := devDB.ExecuteQuery("SELECT id, deviceid, name, sensor_offset FROM sensors WHERE deviceid = ?", deviceID)
 	if err != nil {
@@ -254,56 +289,30 @@ func (devDB *DeviceDB) GetSensors(deviceID int) ([]Sensor, error) {
 	if err = rows.Err(); err != nil {
 		return sensors, err
 	}
-
 	return sensors, err
 }
 
 func (devDB *DeviceDB) Configure(dev Device) error {
-	logFields := log.Fields{"fnct": "Configure", "device": dev.Name}
-	log.WithFields(logFields).Infof("Configure device '%s' with interval/buffer: %v/%v ",
-		dev.Name, dev.Interval, dev.Buffer)
-	err := devDB.Execute("UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?", dev.Description, dev.Buffer, dev.Interval, dev.ID)
+	err := devDB.Execute("UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?",
+		dev.Description, dev.Buffer, dev.Interval, dev.ID)
 	if err != nil {
-		log.WithFields(logFields).Errorf("exec failed: %v)", err)
 		return err
 	}
-	log.WithFields(logFields).Infof("Succefully updated device %v", dev.Name)
 	return nil
 }
 
 func (devDB *DeviceDB) ConfigureSensor(sensor Sensor) error {
-	logFields := log.Fields{"fnct": "ConfigureSensor"}
-	log.WithFields(logFields).Infof("Configure sensor %s with offset: %v ",
-		sensor.Name, sensor.SensorOffset)
 	err := devDB.Execute("UPDATE sensors SET sensor_offset = ? WHERE deviceid = ? AND name = ?",
 		sensor.SensorOffset, sensor.DeviceID, sensor.Name)
 	if err != nil {
-		log.WithFields(logFields).Errorf("exec failed: %v", err)
-		return err
-	}
-	log.WithFields(logFields).Infof("Succefully updated sensor %s", sensor.Name)
-	return nil
-
-}
-
-func (devDB *DeviceDB) insertDevice(device Device) error {
-	logFields := log.Fields{"fnct": "insertDevice", "device": device.Name}
-	log.WithFields(logFields).Infof("%s", device.Name)
-
-	err := devDB.Execute("INSERT INTO devices (name) VALUES (?)", device.Name)
-	if err != nil {
-		log.WithFields(logFields).Error(err)
 		return err
 	}
 	return nil
 }
 
 func (devDB *DeviceDB) InsertSensor(sensor Sensor) error {
-	logFields := log.Fields{"fnct": "insertSensor", "sensor": sensor.Name}
-	log.WithFields(logFields).Infof("%s", sensor.Name)
 	err := devDB.Execute("INSERT INTO sensors (name,deviceid) VALUES (?,?)", sensor.Name, sensor.DeviceID)
 	if err != nil {
-		log.WithFields(logFields).Error(err)
 		return err
 	}
 	return err
