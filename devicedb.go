@@ -138,13 +138,26 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 
 	var insertSQL string
 	if devDB.conf.UsePostgres {
-		insertSQL = "INSERT INTO devices (name) VALUES ($1) ON CONFLICT (name) DO NOTHING"
+		insertSQL = "INSERT INTO devices (name, description) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING"
 	} else {
-		insertSQL = "INSERT OR IGNORE INTO devices (name) VALUES (?)"
+		insertSQL = "INSERT OR IGNORE INTO devices (name, description) VALUES (?, ?)"
 	}
-	if err := devDB.Execute(insertSQL, descr.Name); err != nil {
+	if err := devDB.Execute(insertSQL, descr.Name, descr.Description); err != nil {
 		log.WithFields(logFields).Errorf("Upsert device failed: %v", err)
 		return Device{}, err
+	}
+	// If a description was provided, fill it in only when the stored value is
+	// still empty — preserves any description set via ConfigureDevice.
+	if descr.Description != "" {
+		var updateSQL string
+		if devDB.conf.UsePostgres {
+			updateSQL = "UPDATE devices SET description = $1 WHERE name = $2 AND description = ''"
+		} else {
+			updateSQL = "UPDATE devices SET description = ? WHERE name = ? AND description = ''"
+		}
+		if err := devDB.Execute(updateSQL, descr.Description, descr.Name); err != nil {
+			log.WithFields(logFields).Warnf("failed to update description: %v", err)
+		}
 	}
 
 	rows, err := devDB.ExecuteQuery("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?", descr.Name)

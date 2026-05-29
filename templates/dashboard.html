@@ -1,69 +1,134 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-  <head>
-    <title>IoT Edge Dashboard</title>
-    <link rel="stylesheet" href="/static/css/style.css" />
-  </head>
-  <body>
-    <div class="dashboard-container">
-      <header>
-        <h1>IoT Edge Dashboard</h1>
-        <button id="logout" onclick="logout()">Logout</button>
-      </header>
-      <div class="devices-container">
-        <h2>Devices</h2>
-        <table id="devices-table">
-          <thead>
-            <tr>
-              <th>Device ID</th>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Interval</th>
-              <th>Buffer</th>
-              <th>Sensors</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Devices}}
-            <tr class="device-entry">
-              <td>{{.ID}}</td>
-              <td>{{.Name}}</td>
-              <td>{{.Description}}</td>
-              <td>{{.Interval}}</td>
-              <td>{{.Buffer}}</td>
-              <td>
-                {{range .Sensors}}
-                <div>{{.ID}} ({{.Name}}) ({{.SensorOffset}})</div>
-                {{end}}
-              </td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-      <div class="logs-container">
-        <h2>Logs</h2>
-        <table id="logs-table">
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Device</th>
-              <th>Message</th>
-              <th>Level</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Logs}}
-            <tr class="log-entry">
-              <td>{{.Timestamp}}</td>
-              <td>{{.Device}}</td>
-              <td>{{.Text}}</td>
-              <td>{{.Level}}</td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </body>
+    <head>
+        <title>IoT Edge Dashboard</title>
+        <link rel="stylesheet" href="/static/css/style.css" />
+    </head>
+    <body>
+        <div class="dashboard-container">
+            <header>
+                <h1>IoT Edge Dashboard</h1>
+                <button id="logout" onclick="logout()">Logout</button>
+            </header>
+
+            <div class="devices-container">
+                <h2>Devices</h2>
+                <table id="devices-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Description</th>
+                            <th>Interval (s)</th>
+                            <th>Buffer</th>
+                            <th>Sensors</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Devices}}
+                        <tr class="device-row">
+                            <td>
+                                {{if .Sensors}}
+                                <button
+                                    class="expand-btn"
+                                    onclick="toggleSensors(this)"
+                                    title="Show sensors"
+                                >
+                                    ▶
+                                </button>
+                                {{end}}
+                            </td>
+                            <td>{{.ID}}</td>
+                            <td class="device-name">{{.Name}}</td>
+                            <td>{{.Description}}</td>
+                            <td>{{.Interval}}</td>
+                            <td>{{.Buffer}}</td>
+                            <td>
+                                {{if .Sensors}}
+                                <span class="sensor-count"
+                                    >{{len .Sensors}} sensor{{if gt (len
+                                    .Sensors) 1}}s{{end}}</span
+                                >
+                                {{else}}
+                                <span class="no-sensors">—</span>
+                                {{end}}
+                            </td>
+                        </tr>
+                        {{if .Sensors}}
+                        <tr class="sensor-detail-row hidden">
+                            <td></td>
+                            <td colspan="6">
+                                <table class="sensor-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Sensor ID</th>
+                                            <th>Name</th>
+                                            <th>Offset</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{range .Sensors}}
+                                        <tr>
+                                            <td>{{.ID}}</td>
+                                            <td class="sensor-name">
+                                                {{.Name}}
+                                            </td>
+                                            <td>{{.SensorOffset}}</td>
+                                        </tr>
+                                        {{end}}
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                        {{end}} {{end}}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="logs-container">
+                <h2>Logs</h2>
+                <table id="logs-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Device</th>
+                            <th>Message</th>
+                            <th>Level</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Logs}}
+                        <tr class="log-entry level-{{.Level}}">
+                            <td class="timestamp">{{.Timestamp}}</td>
+                            <td>{{.Device}}</td>
+                            <td>{{.Text}}</td>
+                            <td class="level">{{.Level}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <script>
+            function toggleSensors(btn) {
+                var deviceRow = btn.closest("tr.device-row");
+                var detailRow = deviceRow.nextElementSibling;
+                if (
+                    !detailRow ||
+                    !detailRow.classList.contains("sensor-detail-row")
+                )
+                    return;
+                var hidden = detailRow.classList.toggle("hidden");
+                btn.textContent = hidden ? "▶" : "▼";
+                btn.title = hidden ? "Show sensors" : "Hide sensors";
+            }
+
+            function logout() {
+                document.cookie = "edge-server-session=; Max-Age=0; path=/";
+                window.location.href = "/";
+            }
+        </script>
+    </body>
 </html>
