@@ -1,130 +1,367 @@
 <!doctype html>
-<html>
+<html lang="en">
     <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>IoT Edge Dashboard</title>
+        <link
+            rel="icon"
+            type="image/svg+xml"
+            href="/static/resources/icon.svg"
+        />
         <link rel="stylesheet" href="/static/css/style.css" />
     </head>
     <body>
-        <div class="dashboard-container">
-            <header>
-                <h1>IoT Edge Dashboard</h1>
-                <button id="logout" onclick="logout()">Logout</button>
-            </header>
-
-            <div class="devices-container">
-                <h2>Devices</h2>
-                <table id="devices-table">
-                    <thead>
-                        <tr>
-                            <th></th>
-                            <th>ID</th>
-                            <th>Name</th>
-                            <th>Description</th>
-                            <th>Interval (s)</th>
-                            <th>Buffer</th>
-                            <th>Sensors</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .Devices}}
-                        <tr class="device-row">
-                            <td>
-                                {{if .Sensors}}
-                                <button
-                                    class="expand-btn"
-                                    onclick="toggleSensors(this)"
-                                    title="Show sensors"
-                                >
-                                    ▶
-                                </button>
-                                {{end}}
-                            </td>
-                            <td>{{.ID}}</td>
-                            <td class="device-name">{{.Name}}</td>
-                            <td>{{.Description}}</td>
-                            <td>{{.Interval}}</td>
-                            <td>{{.Buffer}}</td>
-                            <td>
-                                {{if .Sensors}}
-                                <span class="sensor-count"
-                                    >{{len .Sensors}} sensor{{if gt (len
-                                    .Sensors) 1}}s{{end}}</span
-                                >
-                                {{else}}
-                                <span class="no-sensors">—</span>
-                                {{end}}
-                            </td>
-                        </tr>
-                        {{if .Sensors}}
-                        <tr class="sensor-detail-row hidden">
-                            <td></td>
-                            <td colspan="6">
-                                <table class="sensor-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Sensor ID</th>
-                                            <th>Name</th>
-                                            <th>Offset</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {{range .Sensors}}
-                                        <tr>
-                                            <td>{{.ID}}</td>
-                                            <td class="sensor-name">
-                                                {{.Name}}
-                                            </td>
-                                            <td>{{.SensorOffset}}</td>
-                                        </tr>
-                                        {{end}}
-                                    </tbody>
-                                </table>
-                            </td>
-                        </tr>
-                        {{end}} {{end}}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="logs-container">
-                <h2>Logs</h2>
-                <table id="logs-table">
-                    <thead>
-                        <tr>
-                            <th>Timestamp</th>
-                            <th>Device</th>
-                            <th>Message</th>
-                            <th>Level</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .Logs}}
-                        <tr class="log-entry level-{{.Level}}">
-                            <td class="timestamp">{{.Timestamp}}</td>
-                            <td>{{.Device}}</td>
-                            <td>{{.Text}}</td>
-                            <td class="level">{{.Level}}</td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
+        <!-- ═══════════════════════════════════════════════════════
+       Mobile Top Bar
+       ═══════════════════════════════════════════════════════ -->
+        <div class="topbar" id="topbar">
+            <button
+                class="hamburger"
+                id="hamburger"
+                aria-label="Toggle navigation"
+                aria-expanded="false"
+            >
+                <span class="hb-bar"></span>
+                <span class="hb-bar"></span>
+                <span class="hb-bar"></span>
+            </button>
+            <span class="topbar-brand">IoT Edge</span>
+            <button class="topbar-logout" onclick="logout()">Logout</button>
         </div>
 
+        <!-- Sidebar overlay backdrop (mobile) -->
+        <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+        <!-- ═══════════════════════════════════════════════════════
+       App Layout
+       ═══════════════════════════════════════════════════════ -->
+        <div class="app-layout">
+            <!-- ─── Sidebar ──────────────────────────────────────── -->
+            <nav class="sidebar" id="sidebar" aria-label="Main navigation">
+                <!-- Logo -->
+                <div class="sidebar-header">
+                    <img
+                        src="/static/resources/icon.svg"
+                        alt="IoT Edge"
+                        class="sidebar-icon"
+                    />
+                    <div>
+                        <div class="sidebar-title">IoT <span>Edge</span></div>
+                    </div>
+                </div>
+
+                <div class="sidebar-group-label">Navigation</div>
+
+                <ul class="sidebar-nav">
+                    <li>
+                        <a
+                            href="#devices"
+                            class="nav-item active"
+                            data-section="devices"
+                            onclick="navigate(event, 'devices')"
+                        >
+                            <!-- Chip / CPU icon -->
+                            <svg
+                                class="nav-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <rect
+                                    x="7"
+                                    y="7"
+                                    width="10"
+                                    height="10"
+                                    rx="1"
+                                />
+                                <path
+                                    d="M9 7V5M12 7V5M15 7V5
+                       M9 19v-2M12 19v-2M15 19v-2
+                       M7 9H5M7 12H5M7 15H5
+                       M19 9h-2M19 12h-2M19 15h-2"
+                                />
+                            </svg>
+                            <span class="nav-label">Devices</span>
+                            <span class="nav-badge">{{len .Devices}}</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a
+                            href="#logs"
+                            class="nav-item"
+                            data-section="logs"
+                            onclick="navigate(event, 'logs')"
+                        >
+                            <!-- Clipboard / logs icon -->
+                            <svg
+                                class="nav-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"
+                                />
+                                <rect x="9" y="3" width="6" height="4" rx="1" />
+                                <line x1="9" y1="12" x2="15" y2="12" />
+                                <line x1="9" y1="16" x2="13" y2="16" />
+                            </svg>
+                            <span class="nav-label">Logs</span>
+                            <span class="nav-badge">{{len .Logs}}</span>
+                        </a>
+                    </li>
+                </ul>
+
+                <!-- Footer logout -->
+                <div class="sidebar-footer">
+                    <button class="sidebar-logout-btn" onclick="logout()">
+                        <svg
+                            class="nav-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                        >
+                            <path d="M17 16l4-4m0 0l-4-4m4 4H7" />
+                            <path
+                                d="M13 6V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h6a2 2 0 002-2v-1"
+                            />
+                        </svg>
+                        Logout
+                    </button>
+                </div>
+            </nav>
+
+            <!-- ─── Main Content ─────────────────────────────────── -->
+            <main class="main-content">
+                <!-- ══════════════════════════════════════════════════
+           Devices Section
+           ══════════════════════════════════════════════════ -->
+                <section id="section-devices" class="content-section active">
+                    <div class="section-header">
+                        <div class="section-title-area">
+                            <h1 class="section-title">Devices</h1>
+                            <p class="section-subtitle">
+                                {{len .Devices}} registered device(s)
+                            </p>
+                        </div>
+                        <button
+                            class="btn-refresh"
+                            onclick="location.reload()"
+                            title="Reload page"
+                        >
+                            ↻ Refresh
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <table id="devices-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px"></th>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Description</th>
+                                    <th>Interval (s)</th>
+                                    <th>Buffer</th>
+                                    <th>Sensors</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{range .Devices}}
+                                <tr class="device-row">
+                                    <td>
+                                        {{if .Sensors}}
+                                        <button
+                                            class="expand-btn"
+                                            onclick="toggleSensors(this)"
+                                            title="Show sensors"
+                                            aria-expanded="false"
+                                        >
+                                            ▶
+                                        </button>
+                                        {{end}}
+                                    </td>
+                                    <td>{{.ID}}</td>
+                                    <td class="device-name">{{.Name}}</td>
+                                    <td>{{.Description}}</td>
+                                    <td>{{.Interval}}</td>
+                                    <td>{{.Buffer}}</td>
+                                    <td>
+                                        {{if .Sensors}}
+                                        <span class="sensor-count">
+                                            {{len .Sensors}} sensor{{if gt (len
+                                            .Sensors) 1}}s{{end}}
+                                        </span>
+                                        {{else}}
+                                        <span class="no-sensors">—</span>
+                                        {{end}}
+                                    </td>
+                                </tr>
+                                {{if .Sensors}}
+                                <tr class="sensor-detail-row hidden">
+                                    <td></td>
+                                    <td colspan="6">
+                                        <table class="sensor-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Sensor ID</th>
+                                                    <th>Name</th>
+                                                    <th>Offset</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {{range .Sensors}}
+                                                <tr>
+                                                    <td>{{.ID}}</td>
+                                                    <td class="sensor-name">
+                                                        {{.Name}}
+                                                    </td>
+                                                    <td>{{.SensorOffset}}</td>
+                                                </tr>
+                                                {{end}}
+                                            </tbody>
+                                        </table>
+                                    </td>
+                                </tr>
+                                {{end}} {{end}}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- ══════════════════════════════════════════════════
+           Logs Section
+           ══════════════════════════════════════════════════ -->
+                <section id="section-logs" class="content-section">
+                    <div class="section-header">
+                        <div class="section-title-area">
+                            <h1 class="section-title">Logs</h1>
+                            <p class="section-subtitle">
+                                Last {{len .Logs}} entries — most recent first
+                            </p>
+                        </div>
+                        <button
+                            class="btn-refresh"
+                            onclick="location.reload()"
+                            title="Reload page"
+                        >
+                            ↻ Refresh
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <table id="logs-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Device</th>
+                                    <th>Message</th>
+                                    <th>Level</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{range .Logs}}
+                                <tr class="log-entry level-{{.Level}}">
+                                    <td class="timestamp">{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+                                    <td>{{.Device}}</td>
+                                    <td>{{.Text}}</td>
+                                    <td class="level">{{.Level}}</td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </main>
+        </div>
+        <!-- /.app-layout -->
+
         <script>
+            /* ─── Section navigation ─────────────────────────────── */
+            function showSection(name) {
+                document.querySelectorAll(".content-section").forEach((s) => {
+                    s.classList.toggle("active", s.id === "section-" + name);
+                });
+                document.querySelectorAll(".nav-item").forEach((n) => {
+                    n.classList.toggle("active", n.dataset.section === name);
+                });
+            }
+
+            function navigate(event, section) {
+                event.preventDefault();
+                showSection(section);
+                closeSidebar();
+                history.replaceState(null, "", "#" + section);
+            }
+
+            // Restore section from URL hash on load
+            (function () {
+                const hash = location.hash.slice(1);
+                if (hash === "logs" || hash === "devices") showSection(hash);
+            })();
+
+            /* ─── Sidebar (mobile) ───────────────────────────────── */
+            const hamburger = document.getElementById("hamburger");
+            const sidebar = document.getElementById("sidebar");
+            const backdrop = document.getElementById("sidebar-backdrop");
+
+            function openSidebar() {
+                sidebar.classList.add("open");
+                backdrop.classList.add("visible");
+                hamburger.classList.add("open");
+                hamburger.setAttribute("aria-expanded", "true");
+            }
+
+            function closeSidebar() {
+                sidebar.classList.remove("open");
+                backdrop.classList.remove("visible");
+                hamburger.classList.remove("open");
+                hamburger.setAttribute("aria-expanded", "false");
+            }
+
+            hamburger.addEventListener("click", () => {
+                sidebar.classList.contains("open")
+                    ? closeSidebar()
+                    : openSidebar();
+            });
+
+            backdrop.addEventListener("click", closeSidebar);
+
+            // Close on Escape key
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") closeSidebar();
+            });
+
+            /* ─── Sensor expand / collapse ───────────────────────── */
             function toggleSensors(btn) {
-                var deviceRow = btn.closest("tr.device-row");
-                var detailRow = deviceRow.nextElementSibling;
+                const deviceRow = btn.closest("tr.device-row");
+                const detailRow = deviceRow.nextElementSibling;
                 if (
                     !detailRow ||
                     !detailRow.classList.contains("sensor-detail-row")
                 )
                     return;
-                var hidden = detailRow.classList.toggle("hidden");
+
+                const hidden = detailRow.classList.toggle("hidden");
                 btn.textContent = hidden ? "▶" : "▼";
                 btn.title = hidden ? "Show sensors" : "Hide sensors";
+                btn.setAttribute("aria-expanded", String(!hidden));
             }
 
+            /* ─── Logout ─────────────────────────────────────────── */
             function logout() {
                 document.cookie = "edge-server-session=; Max-Age=0; path=/";
                 window.location.href = "/";

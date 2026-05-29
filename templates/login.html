@@ -1,43 +1,80 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>IoT Edge Login</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <div class="login-box">
-            <h2>IoT Edge Login</h2>
-            <form id="loginForm">
-                <div class="input-group">
-                    <input type="password" id="password" placeholder="Password" required>
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>IoT Edge — Login</title>
+        <link
+            rel="icon"
+            type="image/svg+xml"
+            href="/static/resources/icon.svg"
+        />
+        <link rel="stylesheet" href="/static/css/style.css" />
+    </head>
+    <body>
+        <div class="login-page">
+            <div class="login-card">
+                <!-- Logo -->
+                <div class="login-logo">
+                    <img src="/static/resources/icon.svg" alt="IoT Edge" />
+                    <div class="login-logo-text">IoT <span>Edge</span></div>
                 </div>
-                <button type="submit">Login</button>
-            </form>
-            <div id="error-message" class="error"></div>
+
+                <!-- Heading -->
+                <div class="login-heading">
+                    <h2>Welcome back</h2>
+                    <p>Enter your password to access the dashboard</p>
+                </div>
+
+                <!-- Form -->
+                <form id="loginForm" novalidate>
+                    <div class="form-group">
+                        <label class="form-label" for="password"
+                            >Password</label
+                        >
+                        <input
+                            class="form-input"
+                            type="password"
+                            id="password"
+                            placeholder="••••••••"
+                            autocomplete="current-password"
+                            required
+                        />
+                    </div>
+                    <button class="btn-primary" type="submit">Sign in</button>
+                </form>
+
+                <div id="error-message" class="error-msg" role="alert"></div>
+            </div>
         </div>
-    </div>
-    <script>
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const password = document.getElementById('password').value;
-            try {
-                const response = await fetch('/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ password: password })
+
+        <script>
+            document
+                .getElementById("loginForm")
+                .addEventListener("submit", async (e) => {
+                    e.preventDefault();
+                    const errEl = document.getElementById("error-message");
+                    errEl.textContent = "";
+
+                    const password = document.getElementById("password").value;
+                    try {
+                        const res = await fetch("/login", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ password }),
+                        });
+                        if (res.ok) {
+                            window.location.href = "/dashboard";
+                        } else {
+                            errEl.textContent =
+                                "Incorrect password — please try again.";
+                            document.getElementById("password").focus();
+                        }
+                    } catch {
+                        errEl.textContent =
+                            "Could not reach the server. Check your connection.";
+                    }
                 });
-                if (response.ok) {
-                    window.location.href = '/dashboard';
-                } else {
-                    document.getElementById('error-message').textContent = 'Invalid password';
-                }
-            } catch (error) {
-                document.getElementById('error-message').textContent = 'Login failed';
-            }
-        });
-    </script>
-</body>
+        </script>
+    </body>
 </html>
