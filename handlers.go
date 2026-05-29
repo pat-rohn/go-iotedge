@@ -249,6 +249,13 @@ func (s *IoTEdge) LogHandler(c *gin.Context) {
 		return
 	}
 	log.WithFields(logFields).Infof("Value: %+v", logMsg)
+	// Auto-register the device so that logging alone is enough to create a
+	// devices-table entry (devices that only call /api/log never hit /init-device).
+	if logMsg.Device != "" {
+		if _, err := s.DeviceDB.GetOrCreateDevice(DeviceDesc{Name: logMsg.Device}); err != nil {
+			log.WithFields(logFields).Warnf("auto-register device %q failed: %v", logMsg.Device, err)
+		}
+	}
 	s.SetGinHeaders(c)
 	if err := s.LogMessage(logMsg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to log message: %v", err)})
