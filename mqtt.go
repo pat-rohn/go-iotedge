@@ -135,7 +135,7 @@ func sub(client mqtt.Client, topic string) {
 	}
 }
 
-func StartMQTTBroker(port int, config IoTConfig) {
+func StartMQTTBroker(port int, config IoTConfig) error {
 	dbConfig := config.DbConfig
 	logFields := log.Fields{"tech": "mqtt", "fnct": "StartMQTTBroker"}
 	log.WithFields(logFields).Infof("start mqtt broker on port %d", port)
@@ -150,15 +150,14 @@ func StartMQTTBroker(port int, config IoTConfig) {
 		MQTTserver:        mqttserver.NewServer(nil),
 		timeseriesHandler: &handler,
 	}
+	tcp := listeners.NewTCP("mqtt-broker", fmt.Sprintf(":%d", port))
+	if err := mqttEdge.MQTTserver.AddListener(tcp, nil); err != nil {
+		log.WithFields(logFields).Errorf("failed to add MQTT listener: %v", err)
+		return err
+	}
 	go func() {
-		tcp := listeners.NewTCP("mqtt-broker", fmt.Sprintf(":%d", port))
-		err := mqttEdge.MQTTserver.AddListener(tcp, nil)
-		if err != nil {
-			log.WithFields(logFields).Fatal(err)
-		}
-		err = mqttEdge.MQTTserver.Serve()
-		if err != nil {
-			log.WithFields(logFields).Fatal(err)
+		if err := mqttEdge.MQTTserver.Serve(); err != nil {
+			log.WithFields(logFields).Errorf("MQTT server stopped: %v", err)
 		}
 	}()
 
@@ -173,7 +172,7 @@ func StartMQTTBroker(port int, config IoTConfig) {
 	databaseClient := mqtt.NewClient(opts)
 	time.Sleep(time.Second * 2)
 	if token := databaseClient.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
+		return fmt.Errorf("failed to connect internal MQTT client: %w", token.Error())
 	}
 	sub(databaseClient, "+/+/+/+/+/+/data")
 	sub(databaseClient, "+/+/+/+/+/data")
@@ -193,7 +192,10 @@ func StartMQTTBroker(port int, config IoTConfig) {
 	sub(databaseClient, "+/+/+/json/status")
 	sub(databaseClient, "+/+/json/status")
 	sub(databaseClient, "+/json/status")
-	go publishPing(databaseClient, "/server/ping/data")
+	// Ping on a non-"data" suffix so the keep-alive is not persisted as a
+	// measurement (a "/data" suffix would match the wildcard subscriptions
+	// and store tag "ping" every 30 s).
+	go publishPing(databaseClient, "/server/ping/status")
 
 	nextUploadTime := time.Now().Add(time.Second * time.Duration(config.UploadInterval))
 	dbh := timeseries.DBHandler(dbConfig)
@@ -208,17 +210,19 @@ func StartMQTTBroker(port int, config IoTConfig) {
 		}
 		log.WithFields(logFields).Infof("Got data %d", len(data))
 		if len(config.MQTTRedirectAddress) <= 0 {
-			insertData(dbh, data, nextUploadTime, config.TimeseriesTable)
+			if err := insertData(dbh, data, nextUploadTime, config.TimeseriesTable); err != nil {
+				log.WithFields(logFields).Errorf("Failed to insert MQTT data: %v", err)
+			}
 		} else {
 			log.WithFields(logFields).Infof("Redirect data to %s", config.MQTTRedirectAddress)
 			go sendData(&data, config.MQTTRedirectAddress)
 		}
-		time.Sleep(time.Second * 5)
 	}
 }
 
 func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStruct, nextUploadTime time.Time, table string) error {
 	logger := log.WithFields(log.Fields{"tech": "mqtt", "fnct": "insertData"})
+	failed := 0
 	for i, tsVal := range data {
 		timeTillNextIncome := time.Until(nextUploadTime)
 		if timeTillNextIncome <= time.Second*2 {
@@ -226,6 +230,7 @@ func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStr
 			return fmt.Errorf("aborted after %d/%d series: time budget exceeded", i, len(data))
 		}
 		logger.Tracef("insert %d/%d entries for %s ", len(tsVal.Timestamps), len(tsVal.Values), tsVal.Tag)
+		inserted := false
 		timeOut := time.Now().Add(time.Second * 2)
 		for time.Now().Before(timeOut) {
 			err := dbh.InsertTimeseries(tsVal, true, table)
@@ -233,9 +238,17 @@ func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStr
 				logger.Warnf("Failed to insert values into database: %v", err)
 				time.Sleep(time.Millisecond * 50)
 			} else {
+				inserted = true
 				break
 			}
 		}
+		if !inserted {
+			logger.Errorf("Giving up on series %s after retries", tsVal.Tag)
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("failed to insert %d/%d series", failed, len(data))
 	}
 	return nil
 }

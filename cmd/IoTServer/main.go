@@ -70,8 +70,7 @@ func main() {
 			} else {
 				log.SetLevel(logLevel)
 			}
-			iotedge.StartMQTTBroker(conf.MQTTPort, conf)
-			return nil
+			return iotedge.StartMQTTBroker(conf.MQTTPort, conf)
 		},
 	}
 
@@ -178,16 +177,10 @@ func startServer() error {
 	}
 	iot := iotedge.New(config)
 	stopChan := make(chan bool, 1)
-	// Fix #21: wrap the MQTT broker goroutine with panic recovery so that
-	// broker startup failures (which manifest as panics) are logged as fatal
-	// rather than silently crashing an unmonitored goroutine.
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Fatalf("MQTT broker crashed: %v", r)
-			}
-		}()
-		iotedge.StartMQTTBroker(config.MQTTPort, config)
+		if err := iotedge.StartMQTTBroker(config.MQTTPort, config); err != nil {
+			log.Errorf("MQTT broker failed: %v", err)
+		}
 	}()
 	return iot.StartSensorServer(stopChan)
 }
