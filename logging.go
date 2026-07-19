@@ -181,9 +181,9 @@ func (l *LoggingDB) GetLogMessages(limit int) ([]LogMessage, error) {
 	// Select only the columns needed for scanning; id is not projected here.
 	var sqlStr string
 	if l.conf.UsePostgres {
-		sqlStr = `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC LIMIT $1;`
+		sqlStr = `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC, id DESC LIMIT $1;`
 	} else {
-		sqlStr = `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC LIMIT ?;`
+		sqlStr = `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC, id DESC LIMIT ?;`
 	}
 	rows, err := l.ExecuteQuery(sqlStr, limit)
 	if err != nil {
