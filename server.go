@@ -103,6 +103,8 @@ func GetConfig() IoTConfig {
 		} else {
 			log.Fatal(fmt.Sprintf("Loading config failed: %v", err))
 		}
+	} else {
+		log.WithFields(logFields).Infof("Using config file: %s", viper.ConfigFileUsed())
 	}
 	var iotConfig IoTConfig
 	err = viper.Unmarshal(&iotConfig)
