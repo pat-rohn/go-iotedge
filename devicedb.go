@@ -3,6 +3,7 @@ package iotedge
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,10 +104,27 @@ func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
 	}
 	if !compareConfigs(deviceDB.conf, config) {
 		logger.Fatalf("Config must not change %+v to %+v", deviceDB.conf, config)
-		deviceDB.Close()
-		deviceDB = nil
 	}
 	return deviceDB
+}
+
+// rebind rewrites '?' placeholders to '$1..$n' when the configured backend is
+// Postgres — lib/pq does not accept '?'.
+func (devDB *DeviceDB) rebind(sqlStr string) string {
+	if !devDB.conf.UsePostgres {
+		return sqlStr
+	}
+	var b strings.Builder
+	n := 0
+	for _, r := range sqlStr {
+		if r == '?' {
+			n++
+			fmt.Fprintf(&b, "$%d", n)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func compareConfigs(oldConf, newConf timeseries.DBConfig) bool {
@@ -149,18 +167,13 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	// If a description was provided, fill it in only when the stored value is
 	// still empty — preserves any description set via ConfigureDevice.
 	if descr.Description != "" {
-		var updateSQL string
-		if devDB.conf.UsePostgres {
-			updateSQL = "UPDATE devices SET description = $1 WHERE name = $2 AND description = ''"
-		} else {
-			updateSQL = "UPDATE devices SET description = ? WHERE name = ? AND description = ''"
-		}
+		updateSQL := devDB.rebind("UPDATE devices SET description = ? WHERE name = ? AND description = ''")
 		if err := devDB.Execute(updateSQL, descr.Description, descr.Name); err != nil {
 			log.WithFields(logFields).Warnf("failed to update description: %v", err)
 		}
 	}
 
-	rows, err := devDB.ExecuteQuery("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?", descr.Name)
+	rows, err := devDB.ExecuteQuery(devDB.rebind("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?"), descr.Name)
 	if err != nil {
 		return Device{}, err
 	}
@@ -181,7 +194,7 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 func (devDB *DeviceDB) GetDevice(name string) (Device, error) {
 	logFields := log.Fields{"fnct": "GetDevice", "name": name}
 	log.WithFields(logFields).Infof("Find device with name %v", name)
-	rows, err := devDB.ExecuteQuery("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?", name)
+	rows, err := devDB.ExecuteQuery(devDB.rebind("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?"), name)
 	if err != nil {
 		return Device{}, err
 	}
@@ -287,7 +300,7 @@ func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
 
 func (devDB *DeviceDB) GetSensors(deviceID int) ([]Sensor, error) {
 	var sensors []Sensor
-	rows, err := devDB.ExecuteQuery("SELECT id, deviceid, name, sensor_offset FROM sensors WHERE deviceid = ?", deviceID)
+	rows, err := devDB.ExecuteQuery(devDB.rebind("SELECT id, deviceid, name, sensor_offset FROM sensors WHERE deviceid = ?"), deviceID)
 	if err != nil {
 		return sensors, err
 	}
@@ -306,7 +319,7 @@ func (devDB *DeviceDB) GetSensors(deviceID int) ([]Sensor, error) {
 }
 
 func (devDB *DeviceDB) Configure(dev Device) error {
-	err := devDB.Execute("UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?",
+	err := devDB.Execute(devDB.rebind("UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?"),
 		dev.Description, dev.Buffer, dev.Interval, dev.ID)
 	if err != nil {
 		return err
@@ -315,7 +328,7 @@ func (devDB *DeviceDB) Configure(dev Device) error {
 }
 
 func (devDB *DeviceDB) ConfigureSensor(sensor Sensor) error {
-	err := devDB.Execute("UPDATE sensors SET sensor_offset = ? WHERE deviceid = ? AND name = ?",
+	err := devDB.Execute(devDB.rebind("UPDATE sensors SET sensor_offset = ? WHERE deviceid = ? AND name = ?"),
 		sensor.SensorOffset, sensor.DeviceID, sensor.Name)
 	if err != nil {
 		return err
@@ -324,7 +337,7 @@ func (devDB *DeviceDB) ConfigureSensor(sensor Sensor) error {
 }
 
 func (devDB *DeviceDB) InsertSensor(sensor Sensor) error {
-	err := devDB.Execute("INSERT INTO sensors (name,deviceid) VALUES (?,?)", sensor.Name, sensor.DeviceID)
+	err := devDB.Execute(devDB.rebind("INSERT INTO sensors (name,deviceid) VALUES (?,?)"), sensor.Name, sensor.DeviceID)
 	if err != nil {
 		return err
 	}
