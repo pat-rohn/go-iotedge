@@ -19,7 +19,10 @@ import (
 
 const (
 	defaultPassword = "123"
-	sessionToken    = "iot-session-token"
+
+	// Shipped config defaults — publicly known, so warn when they are in use.
+	defaultConfigPassword      = "changeme"
+	defaultConfigSessionSecret = "changeme-session-secret-min32bytes!!"
 )
 
 var (
@@ -73,8 +76,8 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("DBConfig.Port", 5432)
 	viper.SetDefault("DBConfig.TableName", "configs")
 	viper.SetDefault("TimeseriesTable", "measurements")
-	viper.SetDefault("Password", "changeme")
-	viper.SetDefault("SessionSecret", "changeme-session-secret-min32bytes!!")
+	viper.SetDefault("Password", defaultConfigPassword)
+	viper.SetDefault("SessionSecret", defaultConfigSessionSecret)
 	viper.SetDefault("AllowedOrigins", []string{})
 	viper.SetConfigName("iot")
 	viper.SetConfigType("json")
@@ -114,16 +117,22 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	staticServer := http.FileServer(http.FS(staticFS))
 
 	sessionSecret := s.IoTConfig.SessionSecret
-	if sessionSecret == "" {
+	switch sessionSecret {
+	case "":
 		sessionSecret = defaultPassword
 		log.Warn("SessionSecret not configured, using insecure default — set SessionSecret in config")
+	case defaultConfigSessionSecret:
+		log.Warn("SessionSecret is the publicly known shipped default — sessions are forgeable; set a unique SessionSecret in config")
 	}
 	s.store = cookie.NewStore([]byte(sessionSecret))
 
 	s.password = s.IoTConfig.Password
-	if s.password == "" {
+	switch s.password {
+	case "":
 		s.password = defaultPassword
 		log.Warn("Password not configured, using insecure default — set Password in config")
+	case defaultConfigPassword:
+		log.Warn("Password is the publicly known shipped default — set a unique Password in config")
 	}
 
 	// TODO: set Secure: true when TLS is properly terminated end-to-end.
@@ -134,6 +143,16 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
 	router.Use(sessions.Sessions("edge-server-session", s.store))
+	// CORS headers on every response (including error paths) and a proper
+	// preflight answer for OPTIONS requests.
+	router.Use(func(c *gin.Context) {
+		s.SetGinHeaders(c)
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	})
 
 	router.GET("/static/css/*filepath", func(c *gin.Context) {
 		path := c.Param("filepath")
@@ -180,7 +199,7 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 		defer cancel()
 		return server.Shutdown(shutdownCtx)
 	case err := <-errChan:
-		log.WithFields(logFields).Fatalf("Listen and serve failed: %v.", err)
+		log.WithFields(logFields).Errorf("Listen and serve failed: %v.", err)
 		return err
 	}
 }

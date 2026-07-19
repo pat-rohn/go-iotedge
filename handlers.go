@@ -1,6 +1,7 @@
 package iotedge
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
@@ -54,7 +55,7 @@ func (w *IoTEdge) performLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 		return
 	}
-	if loginReq.Password == w.password {
+	if subtle.ConstantTimeCompare([]byte(loginReq.Password), []byte(w.password)) == 1 {
 		session := sessions.Default(c)
 		session.Set("user", "any")
 		if err := session.Save(); err != nil {
@@ -94,20 +95,11 @@ func (s *IoTEdge) SaveTimeseriesHandler(c *gin.Context) {
 			return
 		}
 	}
-	s.SetGinHeaders(c)
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func (s *IoTEdge) UploadDataHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "UploadDataHandler"}
-	if c.Request.Method == http.MethodOptions {
-		s.SetGinHeaders(c)
-		return
-	}
-	if c.Request.Method == http.MethodGet {
-		c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Okay"})
-		return
-	}
 	var data []timeseries.TimeseriesImportStruct
 	if err := c.BindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
@@ -138,7 +130,6 @@ func (s *IoTEdge) InitDeviceHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("init device %s failed: %v", deviceReq.DeviceDesc.Name, err)})
 		return
 	}
-	s.SetGinHeaders(c)
 	c.JSON(http.StatusOK, dev)
 }
 
@@ -165,7 +156,6 @@ func (s *IoTEdge) ConfigureDeviceHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("configuring device failed: %v", err)})
 		return
 	}
-	s.SetGinHeaders(c)
 	c.JSON(http.StatusOK, dev)
 }
 
@@ -208,17 +198,11 @@ func (s *IoTEdge) ConfSensorHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("sensor '%s' not found on device '%s'", p.SensorName, p.Name)})
 		return
 	}
-	s.SetGinHeaders(c)
 	c.JSON(http.StatusOK, dev)
 }
 
 func (s *IoTEdge) UpdateSensorHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "UpdateSensorHandler"}
-	if c.Request.Method == http.MethodGet {
-		s.SetGinHeaders(c)
-		c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Okay"})
-		return
-	}
 	var p sensorValues
 	if err := c.BindJSON(&p); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
@@ -237,7 +221,6 @@ func (s *IoTEdge) UpdateSensorHandler(c *gin.Context) {
 			return
 		}
 	}
-	s.SetGinHeaders(c)
 	c.JSON(http.StatusOK, Output{Status: "OK", Answer: "Success"})
 }
 
@@ -256,7 +239,6 @@ func (s *IoTEdge) LogHandler(c *gin.Context) {
 			log.WithFields(logFields).Warnf("auto-register device %q failed: %v", logMsg.Device, err)
 		}
 	}
-	s.SetGinHeaders(c)
 	if err := s.LogMessage(logMsg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to log message: %v", err)})
 		return
@@ -264,9 +246,10 @@ func (s *IoTEdge) LogHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
-// SetGinHeaders sets CORS headers on the response. The reflected Origin is only
-// echoed back when it appears in IoTConfig.AllowedOrigins. If the allow-list is
-// empty it defaults to http://localhost and https://localhost.
+// SetGinHeaders sets CORS headers on the response; StartSensorServer applies it
+// as middleware to every route. The reflected Origin is only echoed back when it
+// appears in IoTConfig.AllowedOrigins. If the allow-list is empty it defaults to
+// http://localhost and https://localhost.
 func (s *IoTEdge) SetGinHeaders(c *gin.Context) {
 	origin := c.GetHeader("Origin")
 	log.Tracef("origin from header: %+s", origin)
