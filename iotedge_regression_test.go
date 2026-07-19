@@ -677,4 +677,40 @@ func TestRegressionInitRegistersSensors(t *testing.T) {
 	}
 }
 
+// TestRegressionInsertDataRetryExhaustionReturnsError verifies that insertData
+// returns a non-nil error when a series can never be inserted (retry window
+// exhausted), instead of silently dropping it.
+func TestRegressionInsertDataRetryExhaustionReturnsError(t *testing.T) {
+	cfg := GetConfig()
+	db := timeseries.DBHandler(cfg.DbConfig)
+
+	data := []timeseries.TimeseriesImportStruct{
+		{Tag: "tag-" + uuid.NewString(), Timestamps: []string{"2024-01-01 00:00:00"}, Values: []string{"1.0"}},
+	}
+
+	// A nonexistent table makes every InsertTimeseries attempt fail, so the
+	// 2-second retry window must exhaust and surface an error.
+	err := insertData(db, data, time.Now().Add(time.Minute), "no_such_table_"+strings.ReplaceAll(uuid.NewString(), "-", ""))
+	if err == nil {
+		t.Error("insertData must return an error when all retries for a series fail")
+	}
+}
+
+// TestRegressionRebindPostgresPlaceholders verifies that rebind rewrites '?'
+// placeholders to '$n' for Postgres and leaves SQLite queries untouched.
+func TestRegressionRebindPostgresPlaceholders(t *testing.T) {
+	pg := &DeviceDB{conf: timeseries.DBConfig{UsePostgres: true}}
+	got := pg.rebind("UPDATE sensors SET sensor_offset = ? WHERE deviceid = ? AND name = ?")
+	want := "UPDATE sensors SET sensor_offset = $1 WHERE deviceid = $2 AND name = $3"
+	if got != want {
+		t.Errorf("rebind (postgres):\n got  %q\n want %q", got, want)
+	}
+
+	lite := &DeviceDB{conf: timeseries.DBConfig{UsePostgres: false}}
+	sqlStr := "SELECT id FROM devices WHERE name = ?"
+	if got := lite.rebind(sqlStr); got != sqlStr {
+		t.Errorf("rebind (sqlite) must be a no-op, got %q", got)
+	}
+}
+
 // (cert tests removed — TLS is now delegated to a reverse proxy such as Traefik)

@@ -104,7 +104,9 @@ func testDBInit(t *testing.T) {
 			Sensors:     []string{fmt.Sprintf("%sTemperature", name)},
 		}
 		log.Warnf("Init device %s", name)
-		iot.Init(dummy)
+		if _, err := iot.Init(dummy); err != nil {
+			t.Errorf("Init device %s: %v", name, err)
+		}
 	}
 	stopper <- true
 	time.Sleep(time.Second * 2)
@@ -144,22 +146,21 @@ func testInitDevices(t *testing.T) {
 			dummy.sendSensorData(t)
 			fmt.Printf("--> %s\n", dummy.DeviceDesc.Name)
 
-			wg.Done()
 			counter <- 1
+			wg.Done()
 		}(t, i, counter)
 
 	}
 	fmt.Println("Wait till ready")
 	go func(counter chan int) {
 		c := 0
-		for {
-			<-counter
+		for range counter {
 			c += 1
 			fmt.Printf("..%d..", c)
 		}
-
 	}(counter)
 	wg.Wait()
+	close(counter)
 	fmt.Println("Finished")
 	stopper <- true
 	time.Sleep(time.Second * 2)
@@ -392,12 +393,13 @@ func TestLogging(t *testing.T) {
 					bytes.NewBuffer(jsonData))
 				if err != nil {
 					t.Error(err)
+					continue
 				}
-				time.Sleep(time.Millisecond * 50)
-				defer resp.Body.Close()
 				if resp.StatusCode != http.StatusOK {
 					t.Errorf("Failed with status: %s", resp.Status)
 				}
+				resp.Body.Close()
+				time.Sleep(time.Millisecond * 50)
 			}
 
 		})
