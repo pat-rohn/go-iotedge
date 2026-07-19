@@ -10,3 +10,8 @@ key.pem
 **/__debug_*
 cert.pem
 iot.db
+iot.db-shm
+iot.db-wal
+cmd/IoTServer/iot.db
+cmd/IoTServer/iot.db-shm
+cmd/IoTServer/iot.db-wal
