@@ -164,10 +164,10 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 		log.WithFields(logFields).Errorf("Upsert device failed: %v", err)
 		return Device{}, err
 	}
-	// If a description was provided, fill it in only when the stored value is
-	// still empty — preserves any description set via ConfigureDevice.
+	// Device startup reports the current IP address as its description.
+	// Do not overwrite it for payloads that omit a description.
 	if descr.Description != "" {
-		updateSQL := devDB.rebind("UPDATE devices SET description = ? WHERE name = ? AND description = ''")
+		updateSQL := devDB.rebind("UPDATE devices SET description = ? WHERE name = ?")
 		if err := devDB.Execute(updateSQL, descr.Description, descr.Name); err != nil {
 			log.WithFields(logFields).Warnf("failed to update description: %v", err)
 		}

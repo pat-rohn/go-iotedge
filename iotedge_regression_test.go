@@ -135,6 +135,26 @@ func TestRegressionGetDeviceNoSpuriousErrorLog(t *testing.T) {
 	})
 }
 
+func TestRegressionInitRefreshesDeviceDescription(t *testing.T) {
+	iot := regressionIoT()
+	name := "description-" + uuid.NewString()
+
+	if _, err := iot.Init(DeviceDesc{Name: name, Description: "192.168.1.10"}); err != nil {
+		t.Fatalf("first Init: %v", err)
+	}
+	if _, err := iot.Init(DeviceDesc{Name: name, Description: "192.168.1.11"}); err != nil {
+		t.Fatalf("second Init: %v", err)
+	}
+
+	device, err := iot.DeviceDB.GetDevice(name)
+	if err != nil {
+		t.Fatalf("GetDevice: %v", err)
+	}
+	if device.Description != "192.168.1.11" {
+		t.Errorf("description = %q, want current IP %q", device.Description, "192.168.1.11")
+	}
+}
+
 // ── Item #2 ──────────────────────────────────────────────────────────────────
 
 // TestRegressionGetDeviceNotFoundReturnsError verifies that GetDevice returns
