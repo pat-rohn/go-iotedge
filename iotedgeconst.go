@@ -15,6 +15,7 @@ const (
 
 	URILogin     string = "/login"
 	URIDashboard string = "/dashboard"
+	URIVersion   string = "/version"
 
 	URIInitDevice      string = "/init-device"
 	URIUpdateSensor    string = "/update-sensor"

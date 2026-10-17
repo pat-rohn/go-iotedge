@@ -87,6 +87,7 @@ func newTestRouter(iot *IoTEdge) *gin.Engine {
 	r := gin.New()
 	r.Use(sessions.Sessions("test-session", store))
 	r.GET(URIDashboard, iot.DashboardHandler)
+	r.GET(URIVersion, iot.VersionHandler)
 	r.POST(URIInitDevice, iot.InitDeviceHandler)
 	r.POST(URIDeviceConfigure, iot.ConfigureDeviceHandler)
 	r.POST(URISensorConfigure, iot.ConfSensorHandler)
@@ -472,6 +473,32 @@ func TestRegressionDashboardJSONIncludesDevices(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("device %q not found in JSON dashboard response; devices: %+v", name, resp.Devices)
+	}
+}
+
+func TestRegressionVersionEndpointReturnsBuildMetadata(t *testing.T) {
+	originalBuildDate, originalCommitHash := buildDate, commitHash
+	buildDate, commitHash = "2026-10-17T15:00:00Z", "fcee057af9844264c6c35a6260b5dcc5e0da31e2"
+	t.Cleanup(func() {
+		buildDate, commitHash = originalBuildDate, originalCommitHash
+	})
+
+	iot := regressionIoT()
+	router := newTestRouter(&iot)
+	req := httptest.NewRequest(http.MethodGet, URIVersion, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("version GET: %d %s", w.Code, w.Body.String())
+	}
+
+	var version VersionInfo
+	if err := json.NewDecoder(w.Body).Decode(&version); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if version.Date != buildDate || version.Commit != commitHash {
+		t.Errorf("version = %+v, want date %q and commit %q", version, buildDate, commitHash)
 	}
 }
 

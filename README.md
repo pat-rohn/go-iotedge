@@ -3,6 +3,25 @@ Simple IoT-Server for receiving and storing timeseries
 
 Example for a client can be found [here](https://github.com/pat-rohn/esp-enlightened)
 
+## Version
+
+`GET /version` returns the build date and Git commit hash as JSON:
+
+```json
+{
+  "date": "2026-10-17T15:00:00Z",
+  "commit": "fcee057af9844264c6c35a6260b5dcc5e0da31e2"
+}
+```
+
+The dashboard sidebar shows the same metadata. Go automatically embeds VCS
+metadata for builds made from a Git checkout. Release builds can supply explicit
+values with linker flags:
+
+```sh
+go build -ldflags "-X github.com/pat-rohn/go-iotedge.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X github.com/pat-rohn/go-iotedge.commitHash=$(git rev-parse HEAD)" ./cmd/IoTServer
+```
+
 ## Timeseries
 Check out [this](https://github.com/pat-rohn/timeseries) for how to set-up a postgres-database. Example query for Grafana:
 ```SQL

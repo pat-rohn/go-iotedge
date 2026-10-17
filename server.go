@@ -172,6 +172,7 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 
 	router.GET("/", s.LoginPageHandler)
 	router.POST(URILogin, s.performLogin)
+	router.GET(URIVersion, s.VersionHandler)
 	router.GET(URIDashboard, s.AuthenticationHandler, s.DashboardHandler)
 	router.POST(URIUploadData, s.UploadDataHandler)
 	router.POST(URISaveTimeseries, s.SaveTimeseriesHandler)

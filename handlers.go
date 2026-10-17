@@ -27,6 +27,10 @@ func (s *IoTEdge) LoginPageHandler(c *gin.Context) {
 	c.HTML(http.StatusOK, "login.html", gin.H{})
 }
 
+func (s *IoTEdge) VersionHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, CurrentVersion())
+}
+
 func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "DashboardHandler"}
 	logs, err := GetLoggingDB(s.IoTConfig.DbConfig).GetLogMessages(100)
@@ -45,7 +49,11 @@ func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 		c.JSON(http.StatusOK, DashboardResponse{Logs: logs, Devices: devices})
 		return
 	}
-	c.HTML(http.StatusOK, "dashboard.html", gin.H{"Logs": logs, "Devices": devices})
+	c.HTML(http.StatusOK, "dashboard.html", gin.H{
+		"Build":   CurrentVersion(),
+		"Logs":    logs,
+		"Devices": devices,
+	})
 }
 
 func (w *IoTEdge) performLogin(c *gin.Context) {
