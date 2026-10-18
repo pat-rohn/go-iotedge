@@ -126,6 +126,7 @@ func (devDB *DeviceDB) RecordDeviceHealth(report DeviceHealthReport, now time.Ti
 	if err := validateHealthReport(report); err != nil {
 		return err
 	}
+
 	if _, err := devDB.GetOrCreateDevice(DeviceDesc{Name: report.Device}); err != nil {
 		return fmt.Errorf("ensure device: %w", err)
 	}
@@ -158,12 +159,32 @@ func (devDB *DeviceDB) RecordDeviceHealth(report DeviceHealthReport, now time.Ti
 	if report.BootID == "" {
 		return nil
 	}
+
 	insertRestart := `INSERT OR IGNORE INTO device_restarts (device_name, boot_id, occurred_at) VALUES (?, ?, ?)`
 	if devDB.conf.UsePostgres {
 		insertRestart = `INSERT INTO device_restarts (device_name, boot_id, occurred_at) VALUES ($1, $2, $3) ON CONFLICT (device_name, boot_id) DO NOTHING`
 	}
 	if _, err := devDB.DB.Exec(insertRestart, report.Device, report.BootID, lastSeen); err != nil {
 		return fmt.Errorf("insert restart event: %w", err)
+	}
+	return nil
+}
+
+func (devDB *DeviceDB) RecordDeviceActivity(device string, now time.Time) error {
+	if strings.TrimSpace(device) == "" {
+		return fmt.Errorf("device is required")
+	}
+	if _, err := devDB.GetOrCreateDevice(DeviceDesc{Name: device}); err != nil {
+		return fmt.Errorf("ensure device: %w", err)
+	}
+	query := `INSERT INTO device_health (device_name, last_seen) VALUES (?, ?)
+		ON CONFLICT (device_name) DO UPDATE SET last_seen = excluded.last_seen`
+	if devDB.conf.UsePostgres {
+		query = `INSERT INTO device_health (device_name, last_seen) VALUES ($1, $2)
+			ON CONFLICT (device_name) DO UPDATE SET last_seen = EXCLUDED.last_seen`
+	}
+	if _, err := devDB.DB.Exec(query, device, now.UTC()); err != nil {
+		return fmt.Errorf("record device activity: %w", err)
 	}
 	return nil
 }

@@ -131,6 +131,7 @@ func TestMonitoringMQTTHealthIsRecordedAndNotStoredAsMeasurement(t *testing.T) {
 			return iot.DeviceDB.RecordDeviceHealth(report, time.Now())
 		},
 	}
+
 	handler.processData("iotedge/"+device+"/health", `{"device":"`+device+`","boot_id":"mqtt-boot","firmware_version":"1.0.0"}`)
 
 	if len(handler.data) != 0 {
@@ -144,6 +145,33 @@ func TestMonitoringMQTTHealthIsRecordedAndNotStoredAsMeasurement(t *testing.T) {
 		if item.Device == device {
 			if item.Restarts != 1 || item.FirmwareVersion != "1.0.0" {
 				t.Errorf("monitoring item = %+v, want one restart and firmware 1.0.0", item)
+			}
+			return
+		}
+	}
+	t.Fatalf("device %q missing from monitoring summary", device)
+}
+
+func TestMonitoringMQTTMeasurementRefreshesDeviceActivity(t *testing.T) {
+	iot := regressionIoT()
+	device := "SweetHome1-" + uuid.NewString()
+	handler := TimeseriesHandler{
+		data:      []*timeseries.TimeseriesImportStruct{},
+		dataMutex: &sync.Mutex{},
+		recordActivity: func(name string) error {
+			return iot.DeviceDB.RecordDeviceActivity(name, time.Now())
+		},
+	}
+	handler.processData("frick/livingroom/"+device+"/"+device+"Temperature/data", "21.5")
+
+	summary, err := iot.DeviceDB.GetMonitoringSummary(MonitoringConfig{}, time.Now())
+	if err != nil {
+		t.Fatalf("GetMonitoringSummary: %v", err)
+	}
+	for _, item := range summary.Devices {
+		if item.Device == device {
+			if item.Status != "online" {
+				t.Errorf("measurement device status = %q, want online", item.Status)
 			}
 			return
 		}

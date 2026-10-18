@@ -32,6 +32,7 @@ type TimeseriesHandler struct {
 	dataMutex          *sync.Mutex
 	msgCh              chan mqttMsg
 	recordHealth       func(DeviceHealthReport) error
+	recordActivity     func(device string) error
 	publishRetained    func(topic, payload string)
 	summarize          func(device string) (DeviceMonitoringSummary, bool)
 }
@@ -113,6 +114,11 @@ func (h *TimeseriesHandler) processData(topic string, payload string) {
 		logger.Errorf("Not a valid number: %v", payload)
 		return
 	}
+	if h.recordActivity != nil && len(splittedTopic) >= 4 {
+		if err := h.recordActivity(splittedTopic[len(splittedTopic)-3]); err != nil {
+			logger.Errorf("Failed to record measurement activity: %v", err)
+		}
+	}
 
 	timestamp := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	h.dataMutex.Lock()
@@ -192,6 +198,9 @@ func StartMQTTBroker(port int, config IoTConfig) error {
 		msgCh:     make(chan mqttMsg, 1024),
 		recordHealth: func(report DeviceHealthReport) error {
 			return GetDeviceDB(config.DbConfig).RecordDeviceHealth(report, time.Now())
+		},
+		recordActivity: func(device string) error {
+			return GetDeviceDB(config.DbConfig).RecordDeviceActivity(device, time.Now())
 		},
 	}
 	handler.startWorkers(runtime.NumCPU())
