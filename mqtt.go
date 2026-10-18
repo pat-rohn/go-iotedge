@@ -3,6 +3,7 @@ package iotedge
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -29,6 +31,9 @@ type TimeseriesHandler struct {
 	data               []*timeseries.TimeseriesImportStruct
 	dataMutex          *sync.Mutex
 	msgCh              chan mqttMsg
+	recordHealth       func(DeviceHealthReport) error
+	publishRetained    func(topic, payload string)
+	summarize          func(device string) (DeviceMonitoringSummary, bool)
 }
 
 type MQTTEdge struct {
@@ -74,6 +79,31 @@ func (h *TimeseriesHandler) processData(topic string, payload string) {
 	uniqueID := splittedTopic[len(splittedTopic)-2]
 	logger = logger.WithField("uniqueID", uniqueID)
 	logger.Tracef("Received message: %s from topic: %s (%s)\n", string(payload), uniqueID, splittedTopic)
+	if splittedTopic[len(splittedTopic)-1] == "health" {
+		if h.recordHealth == nil {
+			logger.Warn("Received health report without a monitoring recorder")
+			return
+		}
+		var report DeviceHealthReport
+		if err := json.Unmarshal([]byte(payload), &report); err != nil {
+			logger.Errorf("Invalid health payload: %v", err)
+			return
+		}
+		if report.Device != uniqueID {
+			logger.Errorf("Health payload device %q does not match topic device %q", report.Device, uniqueID)
+			return
+		}
+		if err := h.recordHealth(report); err != nil {
+			logger.Errorf("Failed to record health report: %v", err)
+			return
+		}
+		h.publishHomeAssistant(report.Device)
+		return
+	}
+	if splittedTopic[len(splittedTopic)-1] == "availability" {
+		// Availability is retained connectivity state for Home Assistant, not a measurement.
+		return
+	}
 	if splittedTopic[len(splittedTopic)-1] != "data" {
 		logger.Infof("Received unhandled topic: %v", payload)
 		return
@@ -101,6 +131,22 @@ func (h *TimeseriesHandler) processData(topic string, payload string) {
 		Values:     []string{string(payload)},
 		Timestamps: []string{timestamp},
 	})
+}
+
+func (h *TimeseriesHandler) publishHomeAssistant(device string) {
+	if h.publishRetained == nil || h.summarize == nil {
+		return
+	}
+	summary, ok := h.summarize(device)
+	if !ok {
+		return
+	}
+	for _, m := range homeAssistantDiscovery(device) {
+		h.publishRetained(m.Topic, m.Payload)
+	}
+	for _, m := range homeAssistantState(summary) {
+		h.publishRetained(m.Topic, m.Payload)
+	}
 }
 
 func (h *TimeseriesHandler) getAndClearData() ([]timeseries.TimeseriesImportStruct, error) {
@@ -144,6 +190,9 @@ func StartMQTTBroker(port int, config IoTConfig) error {
 		data:      []*timeseries.TimeseriesImportStruct{},
 		dataMutex: &sync.Mutex{},
 		msgCh:     make(chan mqttMsg, 1024),
+		recordHealth: func(report DeviceHealthReport) error {
+			return GetDeviceDB(config.DbConfig).RecordDeviceHealth(report, time.Now())
+		},
 	}
 	handler.startWorkers(runtime.NumCPU())
 	mqttEdge := MQTTEdge{
@@ -152,14 +201,18 @@ func StartMQTTBroker(port int, config IoTConfig) error {
 	}
 	tcp := listeners.NewTCP("mqtt-broker", fmt.Sprintf(":%d", port))
 	if err := mqttEdge.MQTTserver.AddListener(tcp, nil); err != nil {
-		log.WithFields(logFields).Errorf("failed to add MQTT listener: %v", err)
-		return err
-	}
-	go func() {
-		if err := mqttEdge.MQTTserver.Serve(); err != nil {
-			log.WithFields(logFields).Errorf("MQTT server stopped: %v", err)
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			log.WithFields(logFields).Errorf("failed to add MQTT listener: %v", err)
+			return err
 		}
-	}()
+		log.WithFields(logFields).Warnf("MQTT port %d is already in use; consuming from the existing local broker", port)
+	} else {
+		go func() {
+			if err := mqttEdge.MQTTserver.Serve(); err != nil {
+				log.WithFields(logFields).Errorf("MQTT server stopped: %v", err)
+			}
+		}()
+	}
 
 	var broker = "localhost"
 	fmt.Printf("tcp://%s:%d\n", broker, port)
@@ -180,6 +233,29 @@ func StartMQTTBroker(port int, config IoTConfig) error {
 	sub(databaseClient, "+/+/+/data")
 	sub(databaseClient, "+/+/data")
 	sub(databaseClient, "+/data")
+	sub(databaseClient, "iotedge/+/health")
+	sub(databaseClient, "iotedge/+/availability")
+	if config.Monitoring.HomeAssistantDiscovery {
+		handler.publishRetained = func(topic, payload string) {
+			token := databaseClient.Publish(topic, 1, true, payload)
+			if !token.WaitTimeout(5*time.Second) || token.Error() != nil {
+				log.WithFields(logFields).Warnf("Failed to publish %s: %v", topic, token.Error())
+			}
+		}
+		handler.summarize = func(device string) (DeviceMonitoringSummary, bool) {
+			summary, err := GetDeviceDB(config.DbConfig).GetMonitoringSummary(config.Monitoring, time.Now())
+			if err != nil {
+				log.WithFields(logFields).Errorf("Failed to summarize monitoring: %v", err)
+				return DeviceMonitoringSummary{}, false
+			}
+			for _, d := range summary.Devices {
+				if d.Device == device {
+					return d, true
+				}
+			}
+			return DeviceMonitoringSummary{}, false
+		}
+	}
 	sub(databaseClient, "+/+/+/+/+/+/json/set")
 	sub(databaseClient, "+/+/+/+/+/json/set")
 	sub(databaseClient, "+/+/+/+/json/set")

@@ -1,6 +1,7 @@
 package iotedge
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -24,6 +25,11 @@ type LogMessage struct {
 	Level     Loglevel
 }
 
+type LogFilter struct {
+	Device string
+	Level  *Loglevel
+}
+
 type LoggingDB struct {
 	*timeseries.DbHandler
 	conf timeseries.DBConfig
@@ -31,6 +37,44 @@ type LoggingDB struct {
 
 var onceLoggingDB sync.Once
 var loggingDB *LoggingDB
+var loggingHookOnce sync.Once
+
+type databaseLogHook struct {
+	db *LoggingDB
+}
+
+func (h *databaseLogHook) Levels() []log.Level {
+	return log.AllLevels
+}
+
+func (h *databaseLogHook) Fire(entry *log.Entry) error {
+	if entry.Data["persisted_log"] == true {
+		return nil
+	}
+	device := "server"
+	if value, ok := entry.Data["device"].(string); ok && value != "" {
+		device = value
+	}
+	level := Info
+	switch entry.Level {
+	case log.PanicLevel, log.FatalLevel, log.ErrorLevel:
+		level = Error
+	case log.WarnLevel:
+		level = Warning
+	case log.DebugLevel, log.TraceLevel:
+		level = Debug
+	}
+	var query string
+	if h.db.conf.UsePostgres {
+		query = `INSERT INTO logs (device, text, level) VALUES ($1, $2, $3)`
+	} else {
+		query = `INSERT INTO logs (device, text, level) VALUES (?, ?, ?)`
+	}
+	if _, err := h.db.DB.Exec(query, device, entry.Message, int(level)); err != nil {
+		return fmt.Errorf("persist server log: %w", err)
+	}
+	return nil
+}
 
 // GetLoggingDB returns the singleton LoggingDB, initialising it the first time.
 // The early-return guard is intentionally absent — sync.Once handles concurrent
@@ -65,6 +109,9 @@ func GetLoggingDB(config timeseries.DBConfig) *LoggingDB {
 			logger.Fatalf("failed to create logging table:%v", err)
 		}
 		loggingDB.migrateLogsTable()
+		loggingHookOnce.Do(func() {
+			log.AddHook(&databaseLogHook{db: loggingDB})
+		})
 	})
 	// Guard against nil deviceDB before comparing configs (Fix #3).
 	if deviceDB != nil && !compareConfigs(deviceDB.conf, config) {
@@ -177,15 +224,45 @@ func (l *LoggingDB) InsertLogMessage(msg LogMessage) error {
 }
 
 func (l *LoggingDB) GetLogMessages(limit int) ([]LogMessage, error) {
+	return l.GetLogMessagesPage(limit, 0, LogFilter{})
+}
+
+func (l *LoggingDB) GetLogMessagesPage(limit, offset int, filter LogFilter) ([]LogMessage, error) {
 	logger := log.WithFields(log.Fields{"fnct": "GetLogMessages", "limit": limit})
+	if limit <= 0 || limit > 100 {
+		return nil, fmt.Errorf("limit must be between 1 and 100")
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must not be negative")
+	}
 	// Select only the columns needed for scanning; id is not projected here.
 	var sqlStr string
+	args := []any{}
 	if l.conf.UsePostgres {
-		sqlStr = `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC, id DESC LIMIT $1;`
+		sqlStr = `SELECT timestamp, device, text, level FROM logs WHERE 1=1`
+		if filter.Device != "" {
+			sqlStr += ` AND device = $1`
+			args = append(args, filter.Device)
+		}
+		if filter.Level != nil {
+			sqlStr += fmt.Sprintf(` AND level = $%d`, len(args)+1)
+			args = append(args, int(*filter.Level))
+		}
+		sqlStr += fmt.Sprintf(` ORDER BY timestamp DESC, id DESC LIMIT $%d OFFSET $%d`, len(args)+1, len(args)+2)
 	} else {
-		sqlStr = `SELECT timestamp, device, text, level FROM logs ORDER BY timestamp DESC, id DESC LIMIT ?;`
+		sqlStr = `SELECT timestamp, device, text, level FROM logs WHERE 1=1`
+		if filter.Device != "" {
+			sqlStr += ` AND device = ?`
+			args = append(args, filter.Device)
+		}
+		if filter.Level != nil {
+			sqlStr += ` AND level = ?`
+			args = append(args, int(*filter.Level))
+		}
+		sqlStr += ` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`
 	}
-	rows, err := l.ExecuteQuery(sqlStr, limit)
+	args = append(args, limit, offset)
+	rows, err := l.ExecuteQuery(sqlStr, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -44,6 +44,7 @@ type IoTConfig struct {
 	Password            string
 	SessionSecret       string
 	AllowedOrigins      []string
+	Monitoring          MonitoringConfig
 }
 
 func New(iotConfig IoTConfig) IoTEdge {
@@ -53,6 +54,13 @@ func New(iotConfig IoTConfig) IoTEdge {
 	s.DeviceDB = GetDeviceDB(iotConfig.DbConfig)
 	if err := s.DeviceDB.CreateTimeseriesTable(iotConfig.TimeseriesTable); err != nil {
 		log.Fatalf("failed to create table: %v", err)
+	}
+	s.IoTConfig.Monitoring = s.IoTConfig.Monitoring.normalized()
+	if err := s.IoTConfig.Monitoring.validate(); err != nil {
+		log.Fatalf("invalid monitoring configuration: %v", err)
+	}
+	if err := s.DeviceDB.InitializeMonitoring(); err != nil {
+		log.Fatalf("failed to initialize monitoring tables: %v", err)
 	}
 	loggerDB := GetLoggingDB(iotConfig.DbConfig)
 	if loggerDB == nil {
@@ -79,6 +87,9 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("Password", defaultConfigPassword)
 	viper.SetDefault("SessionSecret", defaultConfigSessionSecret)
 	viper.SetDefault("AllowedOrigins", []string{})
+	viper.SetDefault("Monitoring.OnlineWindowMinutes", defaultOnlineWindowMinutes)
+	viper.SetDefault("Monitoring.RestartWindowDays", defaultRestartWindowDays)
+	viper.SetDefault("Monitoring.HomeAssistantDiscovery", false)
 	viper.SetConfigName("iot")
 	viper.SetConfigType("json")
 	dirname, err := os.UserHomeDir()
@@ -181,6 +192,7 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	router.POST(URISensorConfigure, s.ConfSensorHandler)
 	router.POST(URIDeviceConfigure, s.ConfigureDeviceHandler)
 	router.POST(URILogging, s.LogHandler)
+	router.POST(URIMonitoringHealth, s.MonitoringHealthHandler)
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%v", s.Port),

@@ -170,13 +170,31 @@
                         </button>
                     </div>
 
+                    <div class="monitoring-grid" aria-label="Device monitoring summary">
+                        <div class="monitoring-card monitoring-card-online">
+                            <span class="monitoring-card-label">Online</span>
+                            <strong>{{.Monitoring.Online}}</strong>
+                            <span>seen within {{.Monitoring.OnlineWindowMinutes}} min</span>
+                        </div>
+                        <div class="monitoring-card monitoring-card-stale">
+                            <span class="monitoring-card-label">Stale</span>
+                            <strong>{{.Monitoring.Stale}}</strong>
+                            <span>last activity is older</span>
+                        </div>
+                        <div class="monitoring-card monitoring-card-unknown">
+                            <span class="monitoring-card-label">Never seen</span>
+                            <strong>{{.Monitoring.NeverSeen}}</strong>
+                            <span>no telemetry or health report</span>
+                        </div>
+                    </div>
+
                     <div class="card">
                         <table id="devices-table">
                             <thead>
                                 <tr>
                                     <th style="width: 40px"></th>
                                     <th>ID</th>
-                                    <th>Name</th>
+                                    <th>Device</th>
                                     <th>Description</th>
                                     <th>Interval (s)</th>
                                     <th>Buffer</th>
@@ -185,6 +203,7 @@
                             </thead>
                             <tbody>
                                 {{range .Devices}}
+                                {{$monitor := index $.MonitoringByDevice .Name}}
                                 <tr class="device-row">
                                     <td>
                                         {{if .Sensors}}
@@ -199,7 +218,23 @@
                                         {{end}}
                                     </td>
                                     <td>{{.ID}}</td>
-                                    <td class="device-name">{{.Name}}</td>
+                                    <td class="device-name">
+                                        <div>{{.Name}}</div>
+                                        <div class="device-monitoring">
+                                            <span class="device-status status-{{$monitor.Status}}">
+                                            {{if eq $monitor.Status "never_seen"}}Never seen{{else}}{{$monitor.Status}}{{end}}
+                                            </span>
+                                            {{if $monitor.FirmwareVersion}}
+                                            <span>{{$monitor.FirmwareVersion}}</span>
+                                            {{end}}
+                                            {{if $monitor.LastSeen}}
+                                            <span>seen {{$monitor.LastSeen.Format "2006-01-02 15:04"}}</span>
+                                            {{end}}
+                                            {{if gt $monitor.Restarts 0}}
+                                            <span>{{$monitor.Restarts}} restart{{if gt $monitor.Restarts 1}}s{{end}}/{{$.Monitoring.RestartWindowDays}}d</span>
+                                            {{end}}
+                                        </div>
+                                    </td>
                                     <td>{{.Description}}</td>
                                     <td>{{.Interval}}</td>
                                     <td>{{.Buffer}}</td>
@@ -217,7 +252,7 @@
                                 {{if .Sensors}}
                                 <tr class="sensor-detail-row hidden">
                                     <td></td>
-                                    <td colspan="6">
+                                    <td colspan="7">
                                         <table class="sensor-table">
                                             <thead>
                                                 <tr>
@@ -254,7 +289,7 @@
                         <div class="section-title-area">
                             <h1 class="section-title">Logs</h1>
                             <p class="section-subtitle">
-                                Last {{len .Logs}} entries — most recent first
+                                {{len .Logs}} entries — newest first
                             </p>
                         </div>
                         <button
@@ -266,6 +301,24 @@
                         </button>
                     </div>
 
+                    <form class="log-filters" method="get" action="/dashboard#logs">
+                        <label>
+                            Device
+                            <input name="log_device" value="{{.LogFilter.Device}}" />
+                        </label>
+                        <label>
+                            Level
+                            <select name="log_level">
+                                <option value="">All</option>
+                                <option value="0">Debug</option>
+                                <option value="1">Info</option>
+                                <option value="2">Warning</option>
+                                <option value="3">Error</option>
+                            </select>
+                        </label>
+                        <input type="hidden" name="log_offset" value="0" />
+                        <button class="btn-refresh" type="submit">Filter</button>
+                    </form>
                     <div class="card">
                         <table id="logs-table">
                             <thead>
@@ -287,6 +340,14 @@
                                 {{end}}
                             </tbody>
                         </table>
+                    </div>
+                    <div class="log-pagination">
+                        {{if .PrevLogOffset}}
+                        <a class="btn-refresh" href="/dashboard?log_offset={{.PrevLogOffset}}&amp;{{.LogQuery}}#logs">Previous</a>
+                        {{end}}
+                        {{if .NextLogOffset}}
+                        <a class="btn-refresh" href="/dashboard?log_offset={{.NextLogOffset}}&amp;{{.LogQuery}}#logs">Next</a>
+                        {{end}}
                     </div>
                 </section>
             </main>

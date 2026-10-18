@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -19,8 +22,12 @@ type LoginRequest struct {
 
 // DashboardResponse carries both log messages and device configs for JSON clients.
 type DashboardResponse struct {
-	Logs    []LogMessage   `json:"Logs"`
-	Devices []DeviceConfig `json:"Devices"`
+	Logs          []LogMessage      `json:"Logs"`
+	Devices       []DeviceConfig    `json:"Devices"`
+	Monitoring    MonitoringSummary `json:"Monitoring"`
+	LogOffset     int               `json:"LogOffset"`
+	PrevLogOffset *int              `json:"PrevLogOffset,omitempty"`
+	NextLogOffset *int              `json:"NextLogOffset,omitempty"`
 }
 
 func (s *IoTEdge) LoginPageHandler(c *gin.Context) {
@@ -33,7 +40,12 @@ func (s *IoTEdge) VersionHandler(c *gin.Context) {
 
 func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "DashboardHandler"}
-	logs, err := GetLoggingDB(s.IoTConfig.DbConfig).GetLogMessages(100)
+	offset, filter, err := parseLogRequest(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	logs, err := GetLoggingDB(s.IoTConfig.DbConfig).GetLogMessagesPage(100, offset, filter)
 	if err != nil {
 		log.WithFields(logFields).Errorf("Failed to get log messages: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve logs"})
@@ -45,15 +57,94 @@ func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve devices"})
 		return
 	}
+	monitoring, err := s.DeviceDB.GetMonitoringSummary(s.IoTConfig.Monitoring, time.Now())
+	if err != nil {
+		log.WithFields(logFields).Errorf("Failed to get monitoring summary: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve monitoring summary"})
+		return
+	}
+	var previous, next *int
+	if offset >= 100 {
+		value := offset - 100
+		previous = &value
+	}
+	if len(logs) == 100 {
+		value := offset + 100
+		next = &value
+	}
 	if c.GetHeader("Accept") == "application/json" {
-		c.JSON(http.StatusOK, DashboardResponse{Logs: logs, Devices: devices})
+		c.JSON(http.StatusOK, DashboardResponse{Logs: logs, Devices: devices, Monitoring: monitoring, LogOffset: offset, PrevLogOffset: previous, NextLogOffset: next})
 		return
 	}
 	c.HTML(http.StatusOK, "dashboard.html", gin.H{
-		"Build":   CurrentVersion(),
-		"Logs":    logs,
-		"Devices": devices,
+		"Build":         CurrentVersion(),
+		"Logs":          logs,
+		"Devices":       devices,
+		"Monitoring":    monitoring,
+		"LogOffset":     offset,
+		"PrevLogOffset": previous,
+		"NextLogOffset": next,
+		"LogFilter":     filter,
+		"LogQuery":      logFilterQuery(filter),
+		"MonitoringByDevice": func() map[string]DeviceMonitoringSummary {
+			byDevice := make(map[string]DeviceMonitoringSummary, len(monitoring.Devices))
+			for _, device := range monitoring.Devices {
+				byDevice[device.Device] = device
+			}
+
+			return byDevice
+		}(),
 	})
+}
+
+func logFilterQuery(filter LogFilter) string {
+	values := url.Values{}
+	if filter.Device != "" {
+		values.Set("log_device", filter.Device)
+	}
+	if filter.Level != nil {
+		values.Set("log_level", strconv.Itoa(int(*filter.Level)))
+	}
+	return values.Encode()
+}
+
+func parseLogRequest(c *gin.Context) (int, LogFilter, error) {
+	offset := 0
+	if raw := c.Query("log_offset"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 || value%100 != 0 {
+			return 0, LogFilter{}, fmt.Errorf("log_offset must be a non-negative multiple of 100")
+		}
+		offset = value
+	}
+	filter := LogFilter{Device: c.Query("log_device")}
+	if raw := c.Query("log_level"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < int(Debug) || value > int(Error) {
+			return 0, LogFilter{}, fmt.Errorf("log_level must be between %d and %d", Debug, Error)
+		}
+		level := Loglevel(value)
+		filter.Level = &level
+	}
+	return offset, filter, nil
+}
+
+func (s *IoTEdge) MonitoringHealthHandler(c *gin.Context) {
+	var report DeviceHealthReport
+	if err := c.BindJSON(&report); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request format"})
+		return
+	}
+	if err := s.DeviceDB.RecordDeviceHealth(report, time.Now()); err != nil {
+		if strings.Contains(err.Error(), "must") || strings.Contains(err.Error(), "required") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		log.WithError(err).Error("recording device health failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record device health"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
 func (w *IoTEdge) performLogin(c *gin.Context) {

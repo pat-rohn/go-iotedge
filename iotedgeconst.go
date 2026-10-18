@@ -17,13 +17,14 @@ const (
 	URIDashboard string = "/dashboard"
 	URIVersion   string = "/version"
 
-	URIInitDevice      string = "/init-device"
-	URIUpdateSensor    string = "/update-sensor"
-	URIDeviceConfigure string = "/device/configure"
-	URISensorConfigure string = "/sensor/configure"
-	URIUploadData      string = "/upload-data"
-	URISaveTimeseries  string = "/timeseries/save"
-	URILogging         string = "/api/log"
+	URIInitDevice       string = "/init-device"
+	URIUpdateSensor     string = "/update-sensor"
+	URIDeviceConfigure  string = "/device/configure"
+	URISensorConfigure  string = "/sensor/configure"
+	URIUploadData       string = "/upload-data"
+	URISaveTimeseries   string = "/timeseries/save"
+	URILogging          string = "/api/log"
+	URIMonitoringHealth string = "/monitoring/health"
 )
 
 type Output struct {
