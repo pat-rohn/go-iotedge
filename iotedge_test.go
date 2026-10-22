@@ -293,20 +293,29 @@ func (d *DummyDevice) configureSensor(t *testing.T, configureSensorReq Configure
 	fmt.Println(res["json"])
 }
 
+// TestMQTT is a load test: 1000 clients publish for 10 s.
 func TestMQTT(t *testing.T) {
 	log.SetLevel(log.WarnLevel)
-	config := GetConfig()
-	config.UploadInterval = 5
-	go StartMQTTBroker(1884, config)
-	time.Sleep(time.Second * 2)
+	_, broker, port := testBroker(t, SecurityConfig{}, false)
+	var wg sync.WaitGroup
 	for i := range 1000 {
 		time.Sleep(time.Millisecond * 2)
-		go pubMQTTPaho(i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pubMQTTPaho(port, i)
+		}()
 	}
-	<-time.After(time.Second * 45)
-	// NOTE: do NOT close edge.DeviceDB here — it is the package-level
-	// singleton and closing it would break TestLogging which runs next.
-	time.Sleep(time.Second * 5) // would fail if data is not written
+	wg.Wait()
+	// Close waits until the queued readings are processed, so this test does
+	// not keep the database busy for the tests after it.
+	if err := broker.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	data, _ := broker.handler.getAndClearData()
+	if len(data) == 0 {
+		t.Fatal("no MQTT readings were buffered")
+	}
 }
 
 type TestHandler struct{}
@@ -325,11 +334,11 @@ func (h *TestHandler) handleMessage(client mqtt.Client, msg mqtt.Message) {
 	//fmt.Printf("TestHandler handleMessage %s", string(payload))
 }
 
-func pubMQTTPaho(id int) {
+func pubMQTTPaho(port, id int) {
 	log.Infof("<-- %d ", id)
 	h := TestHandler{}
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", "localhost", 1884))
+	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", "localhost", port))
 	opts.SetClientID("test-client " + fmt.Sprintf("%d", id))
 	//opts.SetUsername("user")
 	//opts.SetPassword("pw")

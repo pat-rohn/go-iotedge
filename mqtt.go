@@ -3,20 +3,20 @@ package iotedge
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-	mqttserver "github.com/mochi-co/mqtt/server"
-	"github.com/mochi-co/mqtt/server/listeners"
+	mqttserver "github.com/mochi-mqtt/server/v2"
+	"github.com/mochi-mqtt/server/v2/listeners"
+	"github.com/mochi-mqtt/server/v2/packets"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 )
@@ -27,24 +27,24 @@ type mqttMsg struct {
 }
 
 type TimeseriesHandler struct {
-	DataMessageHandler *mqtt.MessageHandler
-	data               []*timeseries.TimeseriesImportStruct
-	dataMutex          *sync.Mutex
-	msgCh              chan mqttMsg
-	recordHealth       func(DeviceHealthReport) error
-	recordActivity     func(device string) error
-	publishRetained    func(topic, payload string)
-	summarize          func(device string) (DeviceMonitoringSummary, bool)
-}
+	data            []*timeseries.TimeseriesImportStruct
+	dataMutex       *sync.Mutex
+	msgCh           chan mqttMsg
+	recordHealth    func(DeviceHealthReport) error
+	recordActivity  func(device string) error
+	publishRetained func(topic, payload string)
+	summarize       func(device string) (DeviceMonitoringSummary, bool)
 
-type MQTTEdge struct {
-	MQTTserver        *mqttserver.Server
-	timeseriesHandler *TimeseriesHandler
+	queueMu sync.RWMutex // guards closed and sending on msgCh
+	closed  bool
+	workers sync.WaitGroup
 }
 
 func (h *TimeseriesHandler) startWorkers(n int) {
 	for i := 0; i < n; i++ {
+		h.workers.Add(1)
 		go func() {
+			defer h.workers.Done()
 			for msg := range h.msgCh {
 				h.processData(msg.topic, msg.payload)
 			}
@@ -52,29 +52,36 @@ func (h *TimeseriesHandler) startWorkers(n int) {
 	}
 }
 
-func (h *TimeseriesHandler) handleConnected(client mqtt.Client) {
-	fmt.Println("TimeseriesHandler Connected")
-	log.WithFields(log.Fields{"Handler": "TimeseriesHandler", "fnct": "handleConnected"}).Infoln("New Client")
-}
-
-func (h *TimeseriesHandler) handleConnectionLost(client mqtt.Client, err error) {
-	log.WithFields(log.Fields{"Handler": "TimeseriesHandler", "fnct": "handleConnectionLost"}).Errorf("Connection lost: %v", err)
-	fmt.Println("TimeseriesHandler handleConnectionLost")
-}
-
-func (h *TimeseriesHandler) handleMessage(client mqtt.Client, msg mqtt.Message) {
+// enqueue hands a published message to the workers without blocking the broker.
+func (h *TimeseriesHandler) enqueue(topic, payload string) {
+	h.queueMu.RLock()
+	defer h.queueMu.RUnlock()
+	if h.closed {
+		return
+	}
 	select {
-	case h.msgCh <- mqttMsg{topic: msg.Topic(), payload: string(msg.Payload())}:
+	case h.msgCh <- mqttMsg{topic: topic, payload: payload}:
 	default:
 		log.Warn("MQTT message queue full, dropping message")
 	}
+}
+
+// stopWorkers lets the workers finish the queued messages and waits for them.
+func (h *TimeseriesHandler) stopWorkers() {
+	h.queueMu.Lock()
+	if !h.closed {
+		h.closed = true
+		close(h.msgCh)
+	}
+	h.queueMu.Unlock()
+	h.workers.Wait()
 }
 
 func (h *TimeseriesHandler) processData(topic string, payload string) {
 	logger := log.WithFields(log.Fields{"topic": topic})
 	splittedTopic := strings.Split(topic, "/")
 	if len(splittedTopic) <= 2 {
-		logger.Errorf("No valid data to store into the dabase: %v", splittedTopic)
+		logger.Tracef("Ignoring topic without device and sensor: %v", splittedTopic)
 		return
 	}
 	uniqueID := splittedTopic[len(splittedTopic)-2]
@@ -101,12 +108,10 @@ func (h *TimeseriesHandler) processData(topic string, payload string) {
 		h.publishHomeAssistant(report.Device)
 		return
 	}
-	if splittedTopic[len(splittedTopic)-1] == "availability" {
-		// Availability is retained connectivity state for Home Assistant, not a measurement.
-		return
-	}
 	if splittedTopic[len(splittedTopic)-1] != "data" {
-		logger.Infof("Received unhandled topic: %v", payload)
+		// Availability, Home Assistant discovery, json/set, json/status, …:
+		// not measurements.
+		logger.Tracef("Ignoring topic: %v", payload)
 		return
 	}
 	_, err := strconv.ParseFloat(string(payload), 32)
@@ -164,95 +169,104 @@ func (h *TimeseriesHandler) getAndClearData() ([]timeseries.TimeseriesImportStru
 		timestamps = append(timestamps, impstr.Timestamps...)
 		var values []string
 		values = append(values, impstr.Values...)
-		log.Infof("copied %d/%d entries", len(impstr.Values), len(impstr.Timestamps))
+		log.Tracef("copied %d/%d entries", len(impstr.Values), len(impstr.Timestamps))
 		returnData = append(returnData, timeseries.TimeseriesImportStruct{
 			Tag:        impstr.Tag,
 			Timestamps: timestamps,
 			Values:     values,
 		})
 	}
-	log.Info("Clear slice")
 	h.data = h.data[:0]
 	return returnData, nil
 }
 
-func sub(client mqtt.Client, topic string) {
-	token := client.Subscribe(topic, 1, nil)
-	if !token.WaitTimeout(10 * time.Second) {
-		log.Errorf("Timeout subscribing to topic: %s", topic)
-		return
-	}
-	if token.Error() != nil {
-		log.Errorf("Failed to subscribe to %s: %v", topic, token.Error())
-	}
+// brokerHook allows every MQTT client and hands every client publication to
+// the TimeseriesHandler.
+type brokerHook struct {
+	mqttserver.HookBase
+	handler *TimeseriesHandler
 }
 
-func StartMQTTBroker(port int, config IoTConfig) error {
-	dbConfig := config.DbConfig
-	logFields := log.Fields{"tech": "mqtt", "fnct": "StartMQTTBroker"}
-	log.WithFields(logFields).Infof("start mqtt broker on port %d", port)
-	fmt.Printf("start mqtt broker on port %d\n", port)
-	handler := TimeseriesHandler{
+func (h *brokerHook) ID() string { return "iotedge" }
+
+func (h *brokerHook) Provides(b byte) bool {
+	return b == mqttserver.OnConnectAuthenticate || b == mqttserver.OnACLCheck || b == mqttserver.OnPublished
+}
+
+func (h *brokerHook) OnConnectAuthenticate(cl *mqttserver.Client, pk packets.Packet) bool {
+	return true
+}
+
+func (h *brokerHook) OnACLCheck(cl *mqttserver.Client, topic string, write bool) bool {
+	return true
+}
+
+func (h *brokerHook) OnPublished(cl *mqttserver.Client, pk packets.Packet) {
+	if cl.Net.Inline { // the server's own Home Assistant messages
+		return
+	}
+	h.handler.enqueue(pk.TopicName, string(pk.Payload))
+}
+
+// mqttBroker is the embedded broker and the measurement buffer it fills.
+type mqttBroker struct {
+	server    *mqttserver.Server
+	handler   *TimeseriesHandler
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// Close stops the broker and waits until the queued messages are buffered.
+// Further calls do nothing.
+func (b *mqttBroker) Close() error {
+	b.closeOnce.Do(func() {
+		b.closeErr = b.server.Close()
+		b.handler.stopWorkers()
+	})
+	return b.closeErr
+}
+
+// startMQTTBroker starts the broker on port and returns once it listens.
+func (s *IoTEdge) startMQTTBroker(port int) (*mqttBroker, error) {
+	logFields := log.Fields{"tech": "mqtt", "fnct": "startMQTTBroker"}
+	config := s.IoTConfig
+	deviceDB := s.DeviceDB
+	handler := &TimeseriesHandler{
 		data:      []*timeseries.TimeseriesImportStruct{},
 		dataMutex: &sync.Mutex{},
 		msgCh:     make(chan mqttMsg, 1024),
 		recordHealth: func(report DeviceHealthReport) error {
-			return GetDeviceDB(config.DbConfig).RecordDeviceHealth(report, time.Now())
+			return deviceDB.RecordDeviceHealth(report, time.Now())
 		},
 		recordActivity: func(device string) error {
-			return GetDeviceDB(config.DbConfig).RecordDeviceActivity(device, time.Now())
+			return deviceDB.RecordDeviceActivity(device, time.Now())
 		},
 	}
 	handler.startWorkers(runtime.NumCPU())
-	mqttEdge := MQTTEdge{
-		MQTTserver:        mqttserver.NewServer(nil),
-		timeseriesHandler: &handler,
+
+	server := mqttserver.New(&mqttserver.Options{
+		InlineClient: true,
+		Logger:       slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+	if err := server.AddHook(&brokerHook{handler: handler}, nil); err != nil {
+		return nil, err
 	}
-	tcp := listeners.NewTCP("mqtt-broker", fmt.Sprintf(":%d", port))
-	if err := mqttEdge.MQTTserver.AddListener(tcp, nil); err != nil {
-		if !errors.Is(err, syscall.EADDRINUSE) {
-			log.WithFields(logFields).Errorf("failed to add MQTT listener: %v", err)
-			return err
-		}
-		log.WithFields(logFields).Warnf("MQTT port %d is already in use; consuming from the existing local broker", port)
-	} else {
-		go func() {
-			if err := mqttEdge.MQTTserver.Serve(); err != nil {
-				log.WithFields(logFields).Errorf("MQTT server stopped: %v", err)
-			}
-		}()
+	tcp := listeners.NewTCP(listeners.Config{ID: "mqtt-broker", Address: fmt.Sprintf(":%d", port)})
+	if err := server.AddListener(tcp); err != nil {
+		return nil, fmt.Errorf("MQTT listener on port %d: %w", port, err)
+	}
+	if err := server.Serve(); err != nil {
+		return nil, err
 	}
 
-	var broker = "localhost"
-	fmt.Printf("tcp://%s:%d\n", broker, port)
-	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", broker, port))
-	opts.SetClientID("mqtt-pinger")
-	opts.SetDefaultPublishHandler(mqttEdge.timeseriesHandler.handleMessage)
-	opts.OnConnect = mqttEdge.timeseriesHandler.handleConnected
-	opts.OnConnectionLost = mqttEdge.timeseriesHandler.handleConnectionLost
-	databaseClient := mqtt.NewClient(opts)
-	time.Sleep(time.Second * 2)
-	if token := databaseClient.Connect(); token.Wait() && token.Error() != nil {
-		return fmt.Errorf("failed to connect internal MQTT client: %w", token.Error())
-	}
-	sub(databaseClient, "+/+/+/+/+/+/data")
-	sub(databaseClient, "+/+/+/+/+/data")
-	sub(databaseClient, "+/+/+/+/data")
-	sub(databaseClient, "+/+/+/data")
-	sub(databaseClient, "+/+/data")
-	sub(databaseClient, "+/data")
-	sub(databaseClient, "iotedge/+/health")
-	sub(databaseClient, "iotedge/+/availability")
 	if config.Monitoring.HomeAssistantDiscovery {
 		handler.publishRetained = func(topic, payload string) {
-			token := databaseClient.Publish(topic, 1, true, payload)
-			if !token.WaitTimeout(5*time.Second) || token.Error() != nil {
-				log.WithFields(logFields).Warnf("Failed to publish %s: %v", topic, token.Error())
+			if err := server.Publish(topic, []byte(payload), true, 1); err != nil {
+				log.WithFields(logFields).Warnf("Failed to publish %s: %v", topic, err)
 			}
 		}
 		handler.summarize = func(device string) (DeviceMonitoringSummary, bool) {
-			summary, err := GetDeviceDB(config.DbConfig).GetMonitoringSummary(config.Monitoring, time.Now())
+			summary, err := deviceDB.GetMonitoringSummary(config.Monitoring, time.Now())
 			if err != nil {
 				log.WithFields(logFields).Errorf("Failed to summarize monitoring: %v", err)
 				return DeviceMonitoringSummary{}, false
@@ -265,41 +279,39 @@ func StartMQTTBroker(port int, config IoTConfig) error {
 			return DeviceMonitoringSummary{}, false
 		}
 	}
-	sub(databaseClient, "+/+/+/+/+/+/json/set")
-	sub(databaseClient, "+/+/+/+/+/json/set")
-	sub(databaseClient, "+/+/+/+/json/set")
-	sub(databaseClient, "+/+/+/json/set")
-	sub(databaseClient, "+/+/json/set")
-	sub(databaseClient, "+/json/set")
-	sub(databaseClient, "+/+/+/+/+/+/json/status")
-	sub(databaseClient, "+/+/+/+/+/json/status")
-	sub(databaseClient, "+/+/+/+/json/status")
-	sub(databaseClient, "+/+/+/json/status")
-	sub(databaseClient, "+/+/json/status")
-	sub(databaseClient, "+/json/status")
-	// Ping on a non-"data" suffix so the keep-alive is not persisted as a
-	// measurement (a "/data" suffix would match the wildcard subscriptions
-	// and store tag "ping" every 30 s).
-	go publishPing(databaseClient, "/server/ping/status")
+	log.WithFields(logFields).Infof("MQTT broker listening on port %d", port)
+	return &mqttBroker{server: server, handler: handler}, nil
+}
+
+// StartMQTTBroker runs the broker on IoTConfig.MQTTPort and stores (or
+// forwards) the buffered measurements every UploadInterval seconds.
+func (s *IoTEdge) StartMQTTBroker() error {
+	logFields := log.Fields{"tech": "mqtt", "fnct": "StartMQTTBroker"}
+	config := s.IoTConfig
+	broker, err := s.startMQTTBroker(config.MQTTPort)
+	if err != nil {
+		return err
+	}
+	defer broker.Close()
 
 	nextUploadTime := time.Now().Add(time.Second * time.Duration(config.UploadInterval))
-	dbh := timeseries.DBHandler(dbConfig)
+	dbh := s.DeviceDB.DbHandler
 	for {
 		dur := time.Until(nextUploadTime)
 		<-time.After(dur)
 		nextUploadTime = time.Now().Add(time.Second * time.Duration(config.UploadInterval))
-		data, err := handler.getAndClearData()
+		data, err := broker.handler.getAndClearData()
 		if err != nil {
 			log.Errorf("Failed to get and clear data %v", err)
 			continue
 		}
-		log.WithFields(logFields).Infof("Got data %d", len(data))
+		log.WithFields(logFields).Debugf("Got data %d", len(data))
 		if len(config.MQTTRedirectAddress) <= 0 {
 			if err := insertData(dbh, data, nextUploadTime, config.TimeseriesTable); err != nil {
 				log.WithFields(logFields).Errorf("Failed to insert MQTT data: %v", err)
 			}
 		} else {
-			log.WithFields(logFields).Infof("Redirect data to %s", config.MQTTRedirectAddress)
+			log.WithFields(logFields).Debugf("Redirect data to %s", config.MQTTRedirectAddress)
 			go sendData(&data, config.MQTTRedirectAddress)
 		}
 	}
@@ -336,14 +348,6 @@ func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStr
 		return fmt.Errorf("failed to insert %d/%d series", failed, len(data))
 	}
 	return nil
-}
-
-func publishPing(client mqtt.Client, topic string) {
-	for {
-		token := client.Publish(topic, 0, false, "-10")
-		token.Wait()
-		time.Sleep(time.Second * 30)
-	}
 }
 
 func sendData(data *[]timeseries.TimeseriesImportStruct, url string) error {

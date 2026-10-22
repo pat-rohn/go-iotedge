@@ -70,7 +70,8 @@ func main() {
 			} else {
 				log.SetLevel(logLevel)
 			}
-			return iotedge.StartMQTTBroker(conf.MQTTPort, conf)
+			iot := iotedge.New(conf)
+			return iot.StartMQTTBroker()
 		},
 	}
 
@@ -178,7 +179,7 @@ func startServer() error {
 	iot := iotedge.New(config)
 	stopChan := make(chan bool, 1)
 	go func() {
-		if err := iotedge.StartMQTTBroker(config.MQTTPort, config); err != nil {
+		if err := iot.StartMQTTBroker(); err != nil {
 			log.Errorf("MQTT broker failed: %v", err)
 		}
 	}()
