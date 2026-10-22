@@ -22,6 +22,31 @@ values with linker flags:
 go build -ldflags "-X github.com/pat-rohn/go-iotedge.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X github.com/pat-rohn/go-iotedge.commitHash=$(git rev-parse HEAD)" ./cmd/IoTServer
 ```
 
+## Security settings
+
+Optional hardening in `iot.json`. Both switches default to `false`, so an
+existing setup keeps working unchanged; none of them affects the endpoints
+the firmware uses.
+
+```json
+{
+  "Password": "<unique>",
+  "SessionSecret": "<unique, at least 32 bytes>",
+  "Security": {
+    "RequireCredentials": true,
+    "ProtectAdminRoutes": true
+  },
+  "LogPersistLevel": "warning"
+}
+```
+
+- `RequireCredentials`: refuse to start while `Password` or `SessionSecret`
+  is empty or the shipped default (otherwise only a warning).
+- `ProtectAdminRoutes`: `/device/configure` and `/sensor/configure` need a
+  dashboard login and answer `401` without one.
+- `LogPersistLevel`: lowest server log level stored in the `logs` table
+  (default `warning`). Device logs from `/api/log` are always stored.
+
 ## Timeseries
 Check out [this](https://github.com/pat-rohn/timeseries) for how to set-up a postgres-database. Example query for Grafana:
 ```SQL

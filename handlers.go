@@ -180,6 +180,16 @@ func (s *IoTEdge) AuthenticationHandler(c *gin.Context) {
 	c.Next()
 }
 
+// APIAuthenticationHandler is AuthenticationHandler for JSON endpoints: it
+// answers 401 instead of redirecting to the login page.
+func (s *IoTEdge) APIAuthenticationHandler(c *gin.Context) {
+	if sessions.Default(c).Get("user") == nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "login required"})
+		return
+	}
+	c.Next()
+}
+
 // LogoutHandler clears the session and expires the HttpOnly cookie, which the
 // page cannot remove itself.
 func (s *IoTEdge) LogoutHandler(c *gin.Context) {

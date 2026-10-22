@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -47,9 +48,22 @@ type IoTConfig struct {
 	SessionSecret       string
 	AllowedOrigins      []string
 	Monitoring          MonitoringConfig
+	Security            SecurityConfig
 	// LogPersistLevel is the lowest server log level stored in the logs table
 	// (logrus names: "debug", "info", "warning", "error").
 	LogPersistLevel string
+}
+
+// SecurityConfig holds opt-in hardening. Every switch defaults to false, so a
+// server with an old config behaves as before. None of them affects the
+// endpoints the firmware uses.
+type SecurityConfig struct {
+	// RequireCredentials refuses to start while Password or SessionSecret is
+	// empty or the shipped default.
+	RequireCredentials bool
+	// ProtectAdminRoutes requires a dashboard session for /device/configure
+	// and /sensor/configure.
+	ProtectAdminRoutes bool
 }
 
 func New(iotConfig IoTConfig) IoTEdge {
@@ -103,6 +117,8 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("Monitoring.OnlineWindowMinutes", defaultOnlineWindowMinutes)
 	viper.SetDefault("Monitoring.RestartWindowDays", defaultRestartWindowDays)
 	viper.SetDefault("Monitoring.HomeAssistantDiscovery", false)
+	viper.SetDefault("Security.RequireCredentials", false)
+	viper.SetDefault("Security.ProtectAdminRoutes", false)
 	viper.SetDefault("LogPersistLevel", "warning")
 	viper.SetConfigName("iot")
 	viper.SetConfigType("json")
@@ -139,27 +155,50 @@ func GetConfig() IoTConfig {
 	return iotConfig
 }
 
-// newRouter builds the HTTP router with all routes.
+// checkCredentials returns an error for an empty or shipped default Password or
+// SessionSecret when Security.RequireCredentials is set; otherwise it only warns.
+func checkCredentials(cfg IoTConfig) error {
+	var problems []string
+	switch cfg.SessionSecret {
+	case "":
+		problems = append(problems, "SessionSecret is not configured")
+	case defaultConfigSessionSecret:
+		problems = append(problems, "SessionSecret is the publicly known shipped default — sessions are forgeable")
+	}
+	switch cfg.Password {
+	case "":
+		problems = append(problems, "Password is not configured")
+	case defaultConfigPassword:
+		problems = append(problems, "Password is the publicly known shipped default")
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	if cfg.Security.RequireCredentials {
+		return fmt.Errorf("refusing to start (Security.RequireCredentials): %s", strings.Join(problems, "; "))
+	}
+	for _, p := range problems {
+		log.Warnf("%s — set a unique value in config", p)
+	}
+	return nil
+}
+
+// newRouter checks the credentials and builds the HTTP router with all routes.
 func (s *IoTEdge) newRouter() (*gin.Engine, error) {
+	if err := checkCredentials(s.IoTConfig); err != nil {
+		return nil, err
+	}
 	staticServer := http.FileServer(http.FS(staticFS))
 
 	sessionSecret := s.IoTConfig.SessionSecret
-	switch sessionSecret {
-	case "":
+	if sessionSecret == "" {
 		sessionSecret = defaultPassword
-		log.Warn("SessionSecret not configured, using insecure default — set SessionSecret in config")
-	case defaultConfigSessionSecret:
-		log.Warn("SessionSecret is the publicly known shipped default — sessions are forgeable; set a unique SessionSecret in config")
 	}
 	s.store = cookie.NewStore([]byte(sessionSecret))
 
 	s.password = s.IoTConfig.Password
-	switch s.password {
-	case "":
+	if s.password == "" {
 		s.password = defaultPassword
-		log.Warn("Password not configured, using insecure default — set Password in config")
-	case defaultConfigPassword:
-		log.Warn("Password is the publicly known shipped default — set a unique Password in config")
 	}
 
 	// TODO: set Secure: true when TLS is properly terminated end-to-end.
@@ -195,6 +234,12 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	templates = template.Must(template.ParseFS(templatesFS, "templates/*.html"))
 	router.SetHTMLTemplate(templates)
 
+	// Admin routes need a session only when Security.ProtectAdminRoutes is set.
+	admin := []gin.HandlerFunc{}
+	if s.IoTConfig.Security.ProtectAdminRoutes {
+		admin = append(admin, s.APIAuthenticationHandler)
+	}
+
 	router.GET("/", s.LoginPageHandler)
 	router.POST(URILogin, s.performLogin)
 	router.POST(URILogout, s.LogoutHandler)
@@ -204,8 +249,8 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	router.POST(URISaveTimeseries, s.SaveTimeseriesHandler)
 	router.POST(URIInitDevice, s.InitDeviceHandler)
 	router.POST(URIUpdateSensor, s.UpdateSensorHandler)
-	router.POST(URISensorConfigure, s.ConfSensorHandler)
-	router.POST(URIDeviceConfigure, s.ConfigureDeviceHandler)
+	router.POST(URISensorConfigure, append(admin, s.ConfSensorHandler)...)
+	router.POST(URIDeviceConfigure, append(admin, s.ConfigureDeviceHandler)...)
 	router.POST(URILogging, s.LogHandler)
 	router.POST(URIMonitoringHealth, s.MonitoringHealthHandler)
 	return router, nil
