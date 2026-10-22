@@ -59,7 +59,7 @@ func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
 			deviceDB.DbHandler = dbhandler
 		}
 	} else if deviceDB != nil {
-		logger.Infof("Reusing existing DBHandler for deviceDB")
+		logger.Tracef("Reusing existing DBHandler for deviceDB")
 	}
 
 	if !deviceDBReady {

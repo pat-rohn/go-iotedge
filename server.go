@@ -45,6 +45,9 @@ type IoTConfig struct {
 	SessionSecret       string
 	AllowedOrigins      []string
 	Monitoring          MonitoringConfig
+	// LogPersistLevel is the lowest server log level stored in the logs table
+	// (logrus names: "debug", "info", "warning", "error").
+	LogPersistLevel string
 }
 
 func New(iotConfig IoTConfig) IoTEdge {
@@ -62,6 +65,14 @@ func New(iotConfig IoTConfig) IoTEdge {
 	if err := s.DeviceDB.InitializeMonitoring(); err != nil {
 		log.Fatalf("failed to initialize monitoring tables: %v", err)
 	}
+	if s.IoTConfig.LogPersistLevel == "" {
+		s.IoTConfig.LogPersistLevel = "warning"
+	}
+	persistLevel, err := log.ParseLevel(s.IoTConfig.LogPersistLevel)
+	if err != nil {
+		log.Fatalf("invalid LogPersistLevel %q: %v", s.IoTConfig.LogPersistLevel, err)
+	}
+	setLogPersistLevel(persistLevel)
 	loggerDB := GetLoggingDB(iotConfig.DbConfig)
 	if loggerDB == nil {
 		log.Fatalf("failed to create logging DB")
@@ -90,6 +101,7 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("Monitoring.OnlineWindowMinutes", defaultOnlineWindowMinutes)
 	viper.SetDefault("Monitoring.RestartWindowDays", defaultRestartWindowDays)
 	viper.SetDefault("Monitoring.HomeAssistantDiscovery", false)
+	viper.SetDefault("LogPersistLevel", "warning")
 	viper.SetConfigName("iot")
 	viper.SetConfigType("json")
 	dirname, err := os.UserHomeDir()

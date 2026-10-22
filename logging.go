@@ -3,6 +3,7 @@ package iotedge
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pat-rohn/timeseries"
@@ -43,12 +44,24 @@ type databaseLogHook struct {
 	db *LoggingDB
 }
 
+// logPersistLevel is the lowest log level databaseLogHook stores; set from
+// IoTConfig.LogPersistLevel in New. Every stored line is a DB write.
+var logPersistLevel atomic.Uint32
+
+func init() {
+	setLogPersistLevel(log.WarnLevel)
+}
+
+func setLogPersistLevel(level log.Level) {
+	logPersistLevel.Store(uint32(level))
+}
+
 func (h *databaseLogHook) Levels() []log.Level {
 	return log.AllLevels
 }
 
 func (h *databaseLogHook) Fire(entry *log.Entry) error {
-	if entry.Data["persisted_log"] == true {
+	if entry.Data["persisted_log"] == true || uint32(entry.Level) > logPersistLevel.Load() {
 		return nil
 	}
 	device := "server"
@@ -187,8 +200,8 @@ func (l *LoggingDB) migrateLogsTable() {
 }
 
 func (s *IoTEdge) LogMessage(msg LogMessage) error {
-	logger := log.WithFields(log.Fields{"fnct": "LogMessage", "device": msg.Device, "level": msg.Level})
-	logger.Infof("Log message")
+	// persisted_log: InsertLogMessage below stores the message, the hook must not.
+	logger := log.WithFields(log.Fields{"fnct": "LogMessage", "device": msg.Device, "level": msg.Level, "persisted_log": true})
 	switch msg.Level {
 	case Debug:
 		logger.Debug(msg.Text)
