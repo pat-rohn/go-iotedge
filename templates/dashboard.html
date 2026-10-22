@@ -207,6 +207,7 @@
                                     <th style="width: 40px"></th>
                                     <th>ID</th>
                                     <th>Device</th>
+                                    <th>Address</th>
                                     <th>Description</th>
                                     <th>Interval (s)</th>
                                     <th>Buffer</th>
@@ -247,6 +248,14 @@
                                             {{end}}
                                         </div>
                                     </td>
+                                    <td class="device-address">
+                                        {{if .Address}}
+                                        <a href="{{.URL}}" target="_blank" rel="noopener">{{.Address}}</a>
+                                        {{if .AddressSeenAt}}<span>seen {{.AddressSeenAt.Format "2006-01-02 15:04"}}</span>{{end}}
+                                        {{else}}
+                                        <span class="no-sensors">—</span>
+                                        {{end}}
+                                    </td>
                                     <td>{{.Description}}</td>
                                     <td>{{.Interval}}</td>
                                     <td>{{.Buffer}}</td>
@@ -264,7 +273,7 @@
                                 {{if .Sensors}}
                                 <tr class="sensor-detail-row hidden">
                                     <td></td>
-                                    <td colspan="7">
+                                    <td colspan="8">
                                         <table class="sensor-table">
                                             <thead>
                                                 <tr>

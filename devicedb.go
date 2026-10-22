@@ -100,6 +100,9 @@ func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
 		if err := deviceDB.Execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sensors_unique ON sensors(deviceid, name)"); err != nil {
 			logger.Warnf("idx_sensors_unique: %v", err)
 		}
+		if err := deviceDB.addDeviceAddressColumns(); err != nil {
+			logger.Fatalf("failed to add device address columns: %v", err)
+		}
 		deviceDBReady = true
 	}
 	if !compareConfigs(deviceDB.conf, config) {
@@ -147,6 +150,44 @@ func compareConfigs(oldConf, newConf timeseries.DBConfig) bool {
 		return false
 	}
 	return true
+}
+
+// addDeviceAddressColumns adds devices.address (the IP a device last talked
+// from) and address_seen_at to databases created before they existed.
+func (devDB *DeviceDB) addDeviceAddressColumns() error {
+	timestampType := "DATETIME"
+	if devDB.conf.UsePostgres {
+		timestampType = "TIMESTAMP WITH TIME ZONE"
+	}
+	columns := []struct{ name, definition string }{
+		{"address", "TEXT NOT NULL DEFAULT ''"},
+		{"address_seen_at", timestampType},
+	}
+	for _, column := range columns {
+		if devDB.conf.UsePostgres {
+			if _, err := devDB.DB.Exec(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ` + column.name + ` ` + column.definition); err != nil {
+				return err
+			}
+			continue
+		}
+		var count int
+		if err := devDB.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = ?`, column.name).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err := devDB.DB.Exec(`ALTER TABLE devices ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// RecordDeviceAddress stores the address a device request came from.
+func (devDB *DeviceDB) RecordDeviceAddress(name, address string, now time.Time) error {
+	_, err := devDB.DB.Exec(devDB.rebind(`UPDATE devices SET address = ?, address_seen_at = ? WHERE name = ?`),
+		address, now.UTC(), name)
+	return err
 }
 
 func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
@@ -246,6 +287,7 @@ func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
 	log.WithFields(logFields).Infoln("Find all devices with sensors via JOIN")
 	rows, err := devDB.ExecuteQuery(`
 		SELECT d.id, d.name, d.description, d.intervall, d.buffer,
+		       d.address, d.address_seen_at,
 		       s.id, s.deviceid, s.name, s.sensor_offset
 		FROM devices d
 		LEFT JOIN sensors s ON s.deviceid = d.id
@@ -265,12 +307,14 @@ func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
 			dDesc     string
 			dInterval float32
 			dBuffer   int
+			dAddress  string
+			dSeenAt   *time.Time
 			sID       *int
 			sDeviceID *int
 			sName     *string
 			sOffset   *float32
 		)
-		if err := rows.Scan(&dID, &dName, &dDesc, &dInterval, &dBuffer,
+		if err := rows.Scan(&dID, &dName, &dDesc, &dInterval, &dBuffer, &dAddress, &dSeenAt,
 			&sID, &sDeviceID, &sName, &sOffset); err != nil {
 			log.WithFields(logFields).Errorf("Failed to scan row: %v", err)
 			return nil, err
@@ -279,6 +323,7 @@ func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
 			configMap[dID] = &DeviceConfig{
 				ID: dID, Name: dName, Description: dDesc,
 				Interval: dInterval, Buffer: dBuffer,
+				Address: dAddress, AddressSeenAt: dSeenAt,
 			}
 			order = append(order, dID)
 		}

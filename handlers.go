@@ -140,7 +140,8 @@ func (s *IoTEdge) MonitoringHealthHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request format"})
 		return
 	}
-	if err := s.DeviceDB.RecordDeviceHealth(report, time.Now()); err != nil {
+	now := time.Now()
+	if err := s.DeviceDB.RecordDeviceHealth(report, now); err != nil {
 		if strings.Contains(err.Error(), "must") || strings.Contains(err.Error(), "required") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -149,6 +150,7 @@ func (s *IoTEdge) MonitoringHealthHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record device health"})
 		return
 	}
+	s.recordDeviceAddress(c, report.Device, now)
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
@@ -258,7 +260,19 @@ func (s *IoTEdge) InitDeviceHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("init device %s failed: %v", deviceReq.DeviceDesc.Name, err)})
 		return
 	}
+	s.recordDeviceAddress(c, dev.Name, time.Now())
 	c.JSON(http.StatusOK, dev)
+}
+
+// recordDeviceAddress stores the client IP as the device's address. Failures
+// are logged only: the device's data is already stored.
+func (s *IoTEdge) recordDeviceAddress(c *gin.Context, device string, now time.Time) {
+	if device == "" {
+		return
+	}
+	if err := s.DeviceDB.RecordDeviceAddress(device, c.ClientIP(), now); err != nil {
+		log.WithFields(log.Fields{"fnct": "recordDeviceAddress", "device": device}).Warnf("failed to record address: %v", err)
+	}
 }
 
 func (s *IoTEdge) ConfigureDeviceHandler(c *gin.Context) {
@@ -365,6 +379,8 @@ func (s *IoTEdge) LogHandler(c *gin.Context) {
 	if logMsg.Device != "" {
 		if _, err := s.DeviceDB.GetOrCreateDevice(DeviceDesc{Name: logMsg.Device}); err != nil {
 			log.WithFields(logFields).Warnf("auto-register device %q failed: %v", logMsg.Device, err)
+		} else {
+			s.recordDeviceAddress(c, logMsg.Device, time.Now())
 		}
 	}
 	if err := s.LogMessage(logMsg); err != nil {

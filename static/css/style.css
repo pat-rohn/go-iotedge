@@ -567,6 +567,12 @@ button {
     color: var(--c-text-secondary);
 }
 
+.device-address span {
+    color: var(--c-text-secondary);
+    display: block;
+    font-size: 0.75rem;
+}
+
 .device-status {
     font-size: 0.75rem;
     font-weight: 700;
