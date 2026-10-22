@@ -14,6 +14,7 @@ const (
 	HTTPPort int = 3004
 
 	URILogin     string = "/login"
+	URILogout    string = "/logout"
 	URIDashboard string = "/dashboard"
 	URIVersion   string = "/version"
 

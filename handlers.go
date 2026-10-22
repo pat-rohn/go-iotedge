@@ -180,6 +180,20 @@ func (s *IoTEdge) AuthenticationHandler(c *gin.Context) {
 	c.Next()
 }
 
+// LogoutHandler clears the session and expires the HttpOnly cookie, which the
+// page cannot remove itself.
+func (s *IoTEdge) LogoutHandler(c *gin.Context) {
+	session := sessions.Default(c)
+	session.Clear()
+	session.Options(sessions.Options{Path: "/", MaxAge: -1, HttpOnly: true})
+	if err := session.Save(); err != nil {
+		log.WithField("fnct", "LogoutHandler").Errorf("Failed to clear session: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear session"})
+		return
+	}
+	c.Redirect(http.StatusSeeOther, "/")
+}
+
 func (s *IoTEdge) SaveTimeseriesHandler(c *gin.Context) {
 	logFields := log.Fields{"fnct": "SaveTimeseries"}
 	var data []timeseries.TimeseriesImportStruct

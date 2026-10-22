@@ -23,6 +23,8 @@ const (
 	// Shipped config defaults — publicly known, so warn when they are in use.
 	defaultConfigPassword      = "changeme"
 	defaultConfigSessionSecret = "changeme-session-secret-min32bytes!!"
+
+	sessionCookieName = "edge-server-session"
 )
 
 var (
@@ -137,8 +139,8 @@ func GetConfig() IoTConfig {
 	return iotConfig
 }
 
-func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
-	logFields := log.Fields{"fnct": "startHTTPListener"}
+// newRouter builds the HTTP router with all routes.
+func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	staticServer := http.FileServer(http.FS(staticFS))
 
 	sessionSecret := s.IoTConfig.SessionSecret
@@ -167,7 +169,7 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
-	router.Use(sessions.Sessions("edge-server-session", s.store))
+	router.Use(sessions.Sessions(sessionCookieName, s.store))
 	// CORS headers on every response (including error paths) and a proper
 	// preflight answer for OPTIONS requests.
 	router.Use(func(c *gin.Context) {
@@ -195,6 +197,7 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 
 	router.GET("/", s.LoginPageHandler)
 	router.POST(URILogin, s.performLogin)
+	router.POST(URILogout, s.LogoutHandler)
 	router.GET(URIVersion, s.VersionHandler)
 	router.GET(URIDashboard, s.AuthenticationHandler, s.DashboardHandler)
 	router.POST(URIUploadData, s.UploadDataHandler)
@@ -205,6 +208,15 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	router.POST(URIDeviceConfigure, s.ConfigureDeviceHandler)
 	router.POST(URILogging, s.LogHandler)
 	router.POST(URIMonitoringHealth, s.MonitoringHealthHandler)
+	return router, nil
+}
+
+func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
+	logFields := log.Fields{"fnct": "startHTTPListener"}
+	router, err := s.newRouter()
+	if err != nil {
+		return err
+	}
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%v", s.Port),

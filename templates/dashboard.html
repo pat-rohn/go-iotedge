@@ -428,8 +428,8 @@
 
             /* ─── Logout ─────────────────────────────────────────── */
             function logout() {
-                document.cookie = "edge-server-session=; Max-Age=0; path=/";
-                window.location.href = "/";
+                fetch("/logout", { method: "POST", credentials: "same-origin" })
+                    .finally(() => { window.location.href = "/"; });
             }
         </script>
     </body>
