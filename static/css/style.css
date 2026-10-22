@@ -517,6 +517,20 @@ button {
     margin-bottom: 1.5rem;
 }
 
+.ingest-warning {
+    background: var(--c-warning-bg);
+    border: 1px solid var(--c-warning);
+    border-radius: var(--r-lg);
+    display: grid;
+    gap: 0.25rem;
+    margin-bottom: 1.5rem;
+    padding: 0.875rem 1.125rem;
+}
+
+.ingest-warning ul {
+    margin: 0.25rem 0 0 1.25rem;
+}
+
 .monitoring-card {
     background: var(--c-card-bg);
     border: 1px solid var(--c-border);

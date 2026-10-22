@@ -8,6 +8,8 @@ type IoTEdge struct {
 	DeviceDB  *DeviceDB
 	store     cookie.Store
 	password  string
+	// ingestAuth is set by newRouter from IoTConfig.Security.
+	ingestAuth *ingestAuth
 }
 
 const (

@@ -24,9 +24,8 @@ go build -ldflags "-X github.com/pat-rohn/go-iotedge.buildDate=$(date -u +%Y-%m-
 
 ## Security settings
 
-Optional hardening in `iot.json`. Both switches default to `false`, so an
-existing setup keeps working unchanged; none of them affects the endpoints
-the firmware uses.
+Optional hardening in `iot.json`. Everything defaults to off, so an existing
+setup keeps working unchanged.
 
 ```json
 {
@@ -34,7 +33,9 @@ the firmware uses.
   "SessionSecret": "<unique, at least 32 bytes>",
   "Security": {
     "RequireCredentials": true,
-    "ProtectAdminRoutes": true
+    "ProtectAdminRoutes": true,
+    "IngestAuth": "warn",
+    "IngestToken": "<shared device token>"
   },
   "LogPersistLevel": "warning"
 }
@@ -44,6 +45,12 @@ the firmware uses.
   is empty or the shipped default (otherwise only a warning).
 - `ProtectAdminRoutes`: `/device/configure` and `/sensor/configure` need a
   dashboard login and answer `401` without one.
+- `IngestAuth` with `IngestToken`: shared token the devices send as
+  `Authorization: Bearer <token>` on `/init-device`, `/timeseries/save`,
+  `/upload-data`, `/update-sensor`, `/api/log` and `/monitoring/health`.
+  `off` (default) does not check; `warn` accepts requests without it but logs
+  the client once an hour and lists it on the dashboard; `enforce` answers
+  `401`. Switch to `enforce` once the dashboard list stays empty.
 - `LogPersistLevel`: lowest server log level stored in the `logs` table
   (default `warning`). Device logs from `/api/log` are always stored.
 

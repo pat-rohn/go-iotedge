@@ -64,6 +64,10 @@ type SecurityConfig struct {
 	// ProtectAdminRoutes requires a dashboard session for /device/configure
 	// and /sensor/configure.
 	ProtectAdminRoutes bool
+	// IngestAuth checks the shared IngestToken (Authorization: Bearer) on the
+	// endpoints the firmware uses: "off" (default), "warn" or "enforce".
+	IngestAuth  string
+	IngestToken string
 }
 
 func New(iotConfig IoTConfig) IoTEdge {
@@ -119,6 +123,8 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("Monitoring.HomeAssistantDiscovery", false)
 	viper.SetDefault("Security.RequireCredentials", false)
 	viper.SetDefault("Security.ProtectAdminRoutes", false)
+	viper.SetDefault("Security.IngestAuth", IngestAuthOff)
+	viper.SetDefault("Security.IngestToken", "")
 	viper.SetDefault("LogPersistLevel", "warning")
 	viper.SetConfigName("iot")
 	viper.SetConfigType("json")
@@ -188,6 +194,11 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	if err := checkCredentials(s.IoTConfig); err != nil {
 		return nil, err
 	}
+	ingest, err := newIngestAuth(s.IoTConfig.Security)
+	if err != nil {
+		return nil, err
+	}
+	s.ingestAuth = ingest
 	staticServer := http.FileServer(http.FS(staticFS))
 
 	sessionSecret := s.IoTConfig.SessionSecret
@@ -208,6 +219,11 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
+	// Devices talk to the server directly: take the client IP from the
+	// connection, never from X-Forwarded-For.
+	if err := router.SetTrustedProxies(nil); err != nil {
+		return nil, err
+	}
 	router.Use(sessions.Sessions(sessionCookieName, s.store))
 	// CORS headers on every response (including error paths) and a proper
 	// preflight answer for OPTIONS requests.
@@ -245,14 +261,14 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	router.POST(URILogout, s.LogoutHandler)
 	router.GET(URIVersion, s.VersionHandler)
 	router.GET(URIDashboard, s.AuthenticationHandler, s.DashboardHandler)
-	router.POST(URIUploadData, s.UploadDataHandler)
-	router.POST(URISaveTimeseries, s.SaveTimeseriesHandler)
-	router.POST(URIInitDevice, s.InitDeviceHandler)
-	router.POST(URIUpdateSensor, s.UpdateSensorHandler)
+	router.POST(URIUploadData, s.ingestAuth.handler, s.UploadDataHandler)
+	router.POST(URISaveTimeseries, s.ingestAuth.handler, s.SaveTimeseriesHandler)
+	router.POST(URIInitDevice, s.ingestAuth.handler, s.InitDeviceHandler)
+	router.POST(URIUpdateSensor, s.ingestAuth.handler, s.UpdateSensorHandler)
 	router.POST(URISensorConfigure, append(admin, s.ConfSensorHandler)...)
 	router.POST(URIDeviceConfigure, append(admin, s.ConfigureDeviceHandler)...)
-	router.POST(URILogging, s.LogHandler)
-	router.POST(URIMonitoringHealth, s.MonitoringHealthHandler)
+	router.POST(URILogging, s.ingestAuth.handler, s.LogHandler)
+	router.POST(URIMonitoringHealth, s.ingestAuth.handler, s.MonitoringHealthHandler)
 	return router, nil
 }
 

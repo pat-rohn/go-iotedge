@@ -28,6 +28,9 @@ type DashboardResponse struct {
 	LogOffset     int               `json:"LogOffset"`
 	PrevLogOffset *int              `json:"PrevLogOffset,omitempty"`
 	NextLogOffset *int              `json:"NextLogOffset,omitempty"`
+	// UnauthenticatedIngest lists clients sending without the ingest token
+	// while Security.IngestAuth is "warn".
+	UnauthenticatedIngest []UnauthenticatedClient `json:"UnauthenticatedIngest,omitempty"`
 }
 
 func (s *IoTEdge) LoginPageHandler(c *gin.Context) {
@@ -72,20 +75,22 @@ func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 		value := offset + 100
 		next = &value
 	}
+	unauthenticated := s.ingestAuth.unauthenticated()
 	if c.GetHeader("Accept") == "application/json" {
-		c.JSON(http.StatusOK, DashboardResponse{Logs: logs, Devices: devices, Monitoring: monitoring, LogOffset: offset, PrevLogOffset: previous, NextLogOffset: next})
+		c.JSON(http.StatusOK, DashboardResponse{Logs: logs, Devices: devices, Monitoring: monitoring, LogOffset: offset, PrevLogOffset: previous, NextLogOffset: next, UnauthenticatedIngest: unauthenticated})
 		return
 	}
 	c.HTML(http.StatusOK, "dashboard.html", gin.H{
-		"Build":         CurrentVersion(),
-		"Logs":          logs,
-		"Devices":       devices,
-		"Monitoring":    monitoring,
-		"LogOffset":     offset,
-		"PrevLogOffset": previous,
-		"NextLogOffset": next,
-		"LogFilter":     filter,
-		"LogQuery":      logFilterQuery(filter),
+		"Build":                 CurrentVersion(),
+		"Logs":                  logs,
+		"Devices":               devices,
+		"Monitoring":            monitoring,
+		"LogOffset":             offset,
+		"PrevLogOffset":         previous,
+		"NextLogOffset":         next,
+		"LogFilter":             filter,
+		"LogQuery":              logFilterQuery(filter),
+		"UnauthenticatedIngest": unauthenticated,
 		"MonitoringByDevice": func() map[string]DeviceMonitoringSummary {
 			byDevice := make(map[string]DeviceMonitoringSummary, len(monitoring.Devices))
 			for _, device := range monitoring.Devices {

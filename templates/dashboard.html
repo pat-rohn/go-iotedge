@@ -188,6 +188,18 @@
                         </div>
                     </div>
 
+                    {{if .UnauthenticatedIngest}}
+                    <div class="ingest-warning" role="status">
+                        <strong>Device data without ingest token</strong>
+                        <span>Accepted because <code>Security.IngestAuth</code> is <code>warn</code>. Update these devices before switching to <code>enforce</code>.</span>
+                        <ul>
+                            {{range .UnauthenticatedIngest}}
+                            <li><code>{{.IP}}</code> — {{.Requests}} requests, last {{.LastSeen.Format "2006-01-02 15:04:05"}}</li>
+                            {{end}}
+                        </ul>
+                    </div>
+                    {{end}}
+
                     <div class="card">
                         <table id="devices-table">
                             <thead>
