@@ -1,7 +1,8 @@
 package iotedge
 
 // mqtt_broker_test.go — Phase 1 of doc/EDGE_SERVER_WORKBOOK.md: embedded
-// mochi-mqtt v2 broker consumed through hooks (A1).
+// mochi-mqtt v2 broker consumed through hooks (A1) with the shared ingest
+// token as MQTT password (S3).
 
 import (
 	"fmt"
@@ -242,5 +243,44 @@ func TestMQTTBrokerCloseDrainsQueue(t *testing.T) {
 	broker.handler.enqueue("dev/"+tag+"/data", "1") // must not panic
 	if err := broker.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestMQTTBrokerAuthOffAcceptsAnyClient(t *testing.T) {
+	_, _, port := testBroker(t, SecurityConfig{IngestToken: testIngestToken}, false)
+	client, err := connectClient(port, "")
+	if err != nil {
+		t.Fatalf("connect without password, auth off: %v", err)
+	}
+	client.Disconnect(100)
+}
+
+func TestMQTTBrokerAuthEnforceRequiresToken(t *testing.T) {
+	_, _, port := testBroker(t, SecurityConfig{IngestAuth: IngestAuthEnforce, IngestToken: testIngestToken}, false)
+	if client, err := connectClient(port, ""); err == nil {
+		client.Disconnect(100)
+		t.Error("connect without password accepted")
+	}
+	if client, err := connectClient(port, "wrong-token"); err == nil {
+		client.Disconnect(100)
+		t.Error("connect with wrong password accepted")
+	}
+	client, err := connectClient(port, testIngestToken)
+	if err != nil {
+		t.Fatalf("connect with token: %v", err)
+	}
+	client.Disconnect(100)
+}
+
+func TestMQTTBrokerAuthWarnReportsClient(t *testing.T) {
+	iot, _, port := testBroker(t, SecurityConfig{IngestAuth: IngestAuthWarn, IngestToken: testIngestToken}, false)
+	client, err := connectClient(port, "")
+	if err != nil {
+		t.Fatalf("connect without password, warn: %v", err)
+	}
+	client.Disconnect(100)
+	clients := iot.ingestAuth.unauthenticated()
+	if len(clients) != 1 || clients[0].IP != "127.0.0.1" {
+		t.Fatalf("unauthenticated = %+v, want 127.0.0.1", clients)
 	}
 }

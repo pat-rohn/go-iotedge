@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -180,10 +181,11 @@ func (h *TimeseriesHandler) getAndClearData() ([]timeseries.TimeseriesImportStru
 	return returnData, nil
 }
 
-// brokerHook allows every MQTT client and hands every client publication to
-// the TimeseriesHandler.
+// brokerHook authenticates MQTT clients with the shared ingest token and hands
+// every client publication to the TimeseriesHandler.
 type brokerHook struct {
 	mqttserver.HookBase
+	auth    *ingestAuth
 	handler *TimeseriesHandler
 }
 
@@ -194,7 +196,7 @@ func (h *brokerHook) Provides(b byte) bool {
 }
 
 func (h *brokerHook) OnConnectAuthenticate(cl *mqttserver.Client, pk packets.Packet) bool {
-	return true
+	return h.auth.allow(string(pk.Connect.Password), remoteIP(cl.Net.Remote), "mqtt", time.Now())
 }
 
 func (h *brokerHook) OnACLCheck(cl *mqttserver.Client, topic string, write bool) bool {
@@ -206,6 +208,14 @@ func (h *brokerHook) OnPublished(cl *mqttserver.Client, pk packets.Packet) {
 		return
 	}
 	h.handler.enqueue(pk.TopicName, string(pk.Payload))
+}
+
+func remoteIP(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
 }
 
 // mqttBroker is the embedded broker and the measurement buffer it fills.
@@ -229,6 +239,9 @@ func (b *mqttBroker) Close() error {
 // startMQTTBroker starts the broker on port and returns once it listens.
 func (s *IoTEdge) startMQTTBroker(port int) (*mqttBroker, error) {
 	logFields := log.Fields{"tech": "mqtt", "fnct": "startMQTTBroker"}
+	if err := s.initIngestAuth(); err != nil {
+		return nil, err
+	}
 	config := s.IoTConfig
 	deviceDB := s.DeviceDB
 	handler := &TimeseriesHandler{
@@ -248,7 +261,7 @@ func (s *IoTEdge) startMQTTBroker(port int) (*mqttBroker, error) {
 		InlineClient: true,
 		Logger:       slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 	})
-	if err := server.AddHook(&brokerHook{handler: handler}, nil); err != nil {
+	if err := server.AddHook(&brokerHook{auth: s.ingestAuth, handler: handler}, nil); err != nil {
 		return nil, err
 	}
 	tcp := listeners.NewTCP(listeners.Config{ID: "mqtt-broker", Address: fmt.Sprintf(":%d", port)})

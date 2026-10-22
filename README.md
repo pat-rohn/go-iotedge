@@ -47,10 +47,12 @@ setup keeps working unchanged.
   dashboard login and answer `401` without one.
 - `IngestAuth` with `IngestToken`: shared token the devices send as
   `Authorization: Bearer <token>` on `/init-device`, `/timeseries/save`,
-  `/upload-data`, `/update-sensor`, `/api/log` and `/monitoring/health`.
-  `off` (default) does not check; `warn` accepts requests without it but logs
-  the client once an hour and lists it on the dashboard; `enforce` answers
-  `401`. Switch to `enforce` once the dashboard list stays empty.
+  `/upload-data`, `/update-sensor`, `/api/log` and `/monitoring/health`, and
+  as the password (any username) when connecting to the MQTT broker.
+  `off` (default) does not check; `warn` accepts clients without it but logs
+  them once an hour and lists them on the dashboard; `enforce` answers `401`
+  or refuses the MQTT connection. Home Assistant connects to the same broker
+  and needs the token as its MQTT password before you switch to `enforce`.
 - `LogPersistLevel`: lowest server log level stored in the `logs` table
   (default `warning`). Device logs from `/api/log` are always stored.
 

@@ -85,6 +85,9 @@ func New(iotConfig IoTConfig) IoTEdge {
 	if err := s.DeviceDB.InitializeMonitoring(); err != nil {
 		log.Fatalf("failed to initialize monitoring tables: %v", err)
 	}
+	if err := s.initIngestAuth(); err != nil {
+		log.Fatalf("invalid security configuration: %v", err)
+	}
 	if s.IoTConfig.LogPersistLevel == "" {
 		s.IoTConfig.LogPersistLevel = "warning"
 	}
@@ -194,11 +197,9 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	if err := checkCredentials(s.IoTConfig); err != nil {
 		return nil, err
 	}
-	ingest, err := newIngestAuth(s.IoTConfig.Security)
-	if err != nil {
+	if err := s.initIngestAuth(); err != nil {
 		return nil, err
 	}
-	s.ingestAuth = ingest
 	staticServer := http.FileServer(http.FS(staticFS))
 
 	sessionSecret := s.IoTConfig.SessionSecret

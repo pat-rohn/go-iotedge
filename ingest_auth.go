@@ -32,8 +32,9 @@ type UnauthenticatedClient struct {
 }
 
 type ingestAuth struct {
-	mode  string
-	token []byte
+	settings SecurityConfig
+	mode     string
+	token    []byte
 
 	mu       sync.Mutex
 	clients  map[string]*UnauthenticatedClient
@@ -61,6 +62,7 @@ func newIngestAuth(sec SecurityConfig) (*ingestAuth, error) {
 			IngestAuthOff, IngestAuthWarn, IngestAuthEnforce, sec.IngestAuth)
 	}
 	return &ingestAuth{
+		settings: sec,
 		mode:     mode,
 		token:    []byte(sec.IngestToken),
 		clients:  map[string]*UnauthenticatedClient{},
@@ -68,22 +70,43 @@ func newIngestAuth(sec SecurityConfig) (*ingestAuth, error) {
 	}, nil
 }
 
-func (a *ingestAuth) validToken(c *gin.Context) bool {
-	token, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
-	return ok && subtle.ConstantTimeCompare([]byte(token), a.token) == 1
+// initIngestAuth (re)builds the ingest token check when IoTConfig.Security
+// changed. The HTTP server and the MQTT broker share it.
+func (s *IoTEdge) initIngestAuth() error {
+	if s.ingestAuth != nil && s.ingestAuth.settings == s.IoTConfig.Security {
+		return nil
+	}
+	auth, err := newIngestAuth(s.IoTConfig.Security)
+	if err != nil {
+		return err
+	}
+	s.ingestAuth = auth
+	return nil
+}
+
+// allow decides whether a client presenting token may send device data, and
+// reports it in warn mode. source names the endpoint or "mqtt".
+func (a *ingestAuth) allow(token, ip, source string, now time.Time) bool {
+	if a.mode == IngestAuthOff || (token != "" && subtle.ConstantTimeCompare([]byte(token), a.token) == 1) {
+		return true
+	}
+	if a.mode == IngestAuthEnforce {
+		return false
+	}
+	a.report(ip, source, now)
+	return true
 }
 
 // handler is the middleware for the endpoints the firmware uses.
 func (a *ingestAuth) handler(c *gin.Context) {
-	if a.mode == IngestAuthOff || a.validToken(c) {
-		c.Next()
-		return
+	token, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
+	if !ok {
+		token = ""
 	}
-	if a.mode == IngestAuthEnforce {
+	if !a.allow(token, c.ClientIP(), c.Request.URL.Path, time.Now()) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid ingest token"})
 		return
 	}
-	a.report(c.ClientIP(), c.Request.URL.Path, time.Now())
 	c.Next()
 }
 
