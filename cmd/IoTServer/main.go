@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 
 	iotedge "github.com/pat-rohn/go-iotedge"
 	"github.com/pat-rohn/timeseries"
@@ -70,8 +73,11 @@ func main() {
 			} else {
 				log.SetLevel(logLevel)
 			}
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
 			iot := iotedge.New(conf)
-			return iot.StartMQTTBroker()
+			defer iot.DeviceDB.Close()
+			return iot.StartMQTTBroker(ctx)
 		},
 	}
 
@@ -176,12 +182,21 @@ func startServer() error {
 	} else {
 		log.SetLevel(logLevel)
 	}
+	// SIGINT/SIGTERM stop both servers; buffered MQTT readings are stored
+	// before the database is closed.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	iot := iotedge.New(config)
-	stopChan := make(chan bool, 1)
+	defer iot.DeviceDB.Close()
+	mqttDone := make(chan struct{})
 	go func() {
-		if err := iot.StartMQTTBroker(); err != nil {
+		defer close(mqttDone)
+		if err := iot.StartMQTTBroker(ctx); err != nil {
 			log.Errorf("MQTT broker failed: %v", err)
 		}
 	}()
-	return iot.StartSensorServer(stopChan)
+	err = iot.StartSensorServer(ctx)
+	stop()
+	<-mqttDone
+	return err
 }

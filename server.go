@@ -273,7 +273,9 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	return router, nil
 }
 
-func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
+// StartSensorServer serves HTTP on s.Port until ctx is cancelled, then shuts
+// down gracefully (up to 15 s for running requests).
+func (s *IoTEdge) StartSensorServer(ctx context.Context) error {
 	logFields := log.Fields{"fnct": "startHTTPListener"}
 	router, err := s.newRouter()
 	if err != nil {
@@ -294,7 +296,7 @@ func (s *IoTEdge) StartSensorServer(stopChan chan bool) error {
 	}()
 
 	select {
-	case <-stopChan:
+	case <-ctx.Done():
 		log.WithFields(logFields).Info("Shutting down server gracefully...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

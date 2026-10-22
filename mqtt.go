@@ -2,6 +2,7 @@ package iotedge
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -296,9 +297,13 @@ func (s *IoTEdge) startMQTTBroker(port int) (*mqttBroker, error) {
 	return &mqttBroker{server: server, handler: handler}, nil
 }
 
+// mqttShutdownBudget bounds the final flush when the broker stops.
+const mqttShutdownBudget = 10 * time.Second
+
 // StartMQTTBroker runs the broker on IoTConfig.MQTTPort and stores (or
-// forwards) the buffered measurements every UploadInterval seconds.
-func (s *IoTEdge) StartMQTTBroker() error {
+// forwards) the buffered measurements every UploadInterval seconds. When ctx
+// is cancelled it stops the broker and flushes what is still buffered.
+func (s *IoTEdge) StartMQTTBroker(ctx context.Context) error {
 	logFields := log.Fields{"tech": "mqtt", "fnct": "StartMQTTBroker"}
 	config := s.IoTConfig
 	broker, err := s.startMQTTBroker(config.MQTTPort)
@@ -307,26 +312,53 @@ func (s *IoTEdge) StartMQTTBroker() error {
 	}
 	defer broker.Close()
 
-	nextUploadTime := time.Now().Add(time.Second * time.Duration(config.UploadInterval))
-	dbh := s.DeviceDB.DbHandler
+	interval := time.Second * time.Duration(config.UploadInterval)
+	if interval <= 0 {
+		log.WithFields(logFields).Warnf("UploadInterval %d is not positive, using 30 s", config.UploadInterval)
+		interval = 30 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 	for {
-		dur := time.Until(nextUploadTime)
-		<-time.After(dur)
-		nextUploadTime = time.Now().Add(time.Second * time.Duration(config.UploadInterval))
-		data, err := broker.handler.getAndClearData()
-		if err != nil {
-			log.Errorf("Failed to get and clear data %v", err)
-			continue
-		}
-		log.WithFields(logFields).Debugf("Got data %d", len(data))
-		if len(config.MQTTRedirectAddress) <= 0 {
-			if err := insertData(dbh, data, nextUploadTime, config.TimeseriesTable); err != nil {
-				log.WithFields(logFields).Errorf("Failed to insert MQTT data: %v", err)
+		select {
+		case <-ctx.Done():
+			log.WithFields(logFields).Info("Stopping MQTT broker, flushing buffered readings")
+			if err := broker.Close(); err != nil {
+				log.WithFields(logFields).Warnf("Closing MQTT broker: %v", err)
 			}
-		} else {
-			log.WithFields(logFields).Debugf("Redirect data to %s", config.MQTTRedirectAddress)
-			go sendData(&data, config.MQTTRedirectAddress)
+			s.storeMQTTData(broker.handler, time.Now().Add(mqttShutdownBudget), false)
+			return nil
+		case <-ticker.C:
+			s.storeMQTTData(broker.handler, time.Now().Add(interval), true)
 		}
+	}
+}
+
+// storeMQTTData writes (or forwards) the buffered readings; inserts must
+// finish before deadline.
+func (s *IoTEdge) storeMQTTData(handler *TimeseriesHandler, deadline time.Time, forwardAsync bool) {
+	logFields := log.Fields{"tech": "mqtt", "fnct": "storeMQTTData"}
+	config := s.IoTConfig
+	data, err := handler.getAndClearData()
+	if err != nil {
+		log.WithFields(logFields).Errorf("Failed to get and clear data %v", err)
+		return
+	}
+	if len(data) == 0 {
+		return
+	}
+	log.WithFields(logFields).Debugf("Got data %d", len(data))
+	if len(config.MQTTRedirectAddress) > 0 {
+		log.WithFields(logFields).Debugf("Redirect data to %s", config.MQTTRedirectAddress)
+		if forwardAsync {
+			go sendData(&data, config.MQTTRedirectAddress)
+		} else if err := sendData(&data, config.MQTTRedirectAddress); err != nil {
+			log.WithFields(logFields).Errorf("Failed to forward MQTT data: %v", err)
+		}
+		return
+	}
+	if err := insertData(s.DeviceDB.DbHandler, data, deadline, config.TimeseriesTable); err != nil {
+		log.WithFields(logFields).Errorf("Failed to insert MQTT data: %v", err)
 	}
 }
 

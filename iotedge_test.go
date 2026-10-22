@@ -2,6 +2,7 @@ package iotedge
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -47,9 +48,9 @@ func testMain(t *testing.T) {
 	if err := db.CreateTimeseriesTable("measurements"); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
-	stopper := make(chan bool)
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		iot.StartSensorServer(stopper)
+		iot.StartSensorServer(ctx)
 	}()
 
 	time.Sleep(time.Second * 2)
@@ -83,16 +84,16 @@ func testMain(t *testing.T) {
 		SensorOffset: -4.0,
 	}
 	dummy.configureSensor(t, configureSensorReq)
-	stopper <- true
+	cancel()
 	time.Sleep(time.Second * 2)
 }
 
 func testDBInit(t *testing.T) {
 	iot := New(GetConfig())
 	iot.Port = 3006
-	stopper := make(chan bool)
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		iot.StartSensorServer(stopper)
+		iot.StartSensorServer(ctx)
 	}()
 	time.Sleep(time.Second * 2)
 	for i := range 500 {
@@ -108,7 +109,7 @@ func testDBInit(t *testing.T) {
 			t.Errorf("Init device %s: %v", name, err)
 		}
 	}
-	stopper <- true
+	cancel()
 	time.Sleep(time.Second * 2)
 }
 
@@ -116,9 +117,9 @@ func testInitDevices(t *testing.T) {
 	iot := New(GetConfig())
 	iot.Port = 3006
 
-	stopper := make(chan bool)
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		iot.StartSensorServer(stopper)
+		iot.StartSensorServer(ctx)
 	}()
 	time.Sleep(2 * time.Second)
 	devicesNr := 500
@@ -162,7 +163,7 @@ func testInitDevices(t *testing.T) {
 	wg.Wait()
 	close(counter)
 	fmt.Println("Finished")
-	stopper <- true
+	cancel()
 	time.Sleep(time.Second * 2)
 }
 
@@ -371,9 +372,9 @@ func TestLogging(t *testing.T) {
 	iot := New(config)
 	iot.Port = 3006
 
-	stopper := make(chan bool)
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		iot.StartSensorServer(stopper)
+		iot.StartSensorServer(ctx)
 	}()
 	client := http.Client{
 		Timeout: 40 * time.Second,
@@ -426,6 +427,6 @@ func TestLogging(t *testing.T) {
 		t.Fatalf("Failed with status: %s", resp.Status)
 	}
 
-	stopper <- true
+	cancel()
 	time.Sleep(time.Second * 2)
 }
