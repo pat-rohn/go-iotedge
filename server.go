@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -282,6 +283,7 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	router.GET(URIDashboard, s.AuthenticationHandler, s.DashboardHandler)
 	router.GET(URIDashboard+"/devices", s.AuthenticationHandler, s.devicesPage)
 	router.GET(URIDashboard+"/logs", s.AuthenticationHandler, s.logsPage)
+	router.GET(URIDashboard+"/events", s.AuthenticationHandler, s.overviewEvents)
 	router.GET(URIDashboard+"/devices/:name", s.AuthenticationHandler, s.devicePage)
 	router.PUT(URIDashboard+"/devices/:name", s.AuthenticationHandler, s.csrfProtect, s.updateDeviceSettings)
 	router.PUT(URIDashboard+"/devices/:name/sensors/:sensor", s.AuthenticationHandler, s.csrfProtect, s.updateSensorOffset)
@@ -309,6 +311,8 @@ func (s *IoTEdge) StartSensorServer(ctx context.Context) error {
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%v", s.Port),
 		Handler: router,
+		// Requests end with ctx, so open event streams do not hold up Shutdown.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	errChan := make(chan error, 1)

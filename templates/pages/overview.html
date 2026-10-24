@@ -2,34 +2,40 @@
 <div class="section-header">
     <div class="section-title-area">
         <h1 class="section-title">Overview</h1>
-        <p class="section-subtitle">{{len .Data.Monitoring.Devices}} device(s)</p>
+        <p class="section-subtitle">Updates live</p>
     </div>
 </div>
 
+<div id="overview-live" hx-ext="sse" sse-connect="/dashboard/events" sse-swap="overview">
+{{template "overview-live" .Data}}
+</div>
+{{end}}
+
+{{define "overview-live"}}
 <div class="monitoring-grid" aria-label="Device monitoring summary">
     <div class="monitoring-card monitoring-card-online">
         <span class="monitoring-card-label">Online</span>
-        <strong>{{.Data.Monitoring.Online}}</strong>
-        <span>seen within {{.Data.Monitoring.OnlineWindowMinutes}} min</span>
+        <strong>{{.Monitoring.Online}}</strong>
+        <span>seen within {{.Monitoring.OnlineWindowMinutes}} min</span>
     </div>
     <div class="monitoring-card monitoring-card-stale">
         <span class="monitoring-card-label">Stale</span>
-        <strong>{{.Data.Monitoring.Stale}}</strong>
+        <strong>{{.Monitoring.Stale}}</strong>
         <span>last activity is older</span>
     </div>
     <div class="monitoring-card monitoring-card-unknown">
         <span class="monitoring-card-label">Never seen</span>
-        <strong>{{.Data.Monitoring.NeverSeen}}</strong>
+        <strong>{{.Monitoring.NeverSeen}}</strong>
         <span>no telemetry or health report</span>
     </div>
 </div>
 
-{{if .Data.UnauthenticatedIngest}}
+{{if .UnauthenticatedIngest}}
 <div class="ingest-warning" role="status">
     <strong>Device data without ingest token</strong>
     <span>Accepted because <code>Security.IngestAuth</code> is <code>warn</code>. Update these devices before switching to <code>enforce</code>.</span>
     <ul>
-        {{range .Data.UnauthenticatedIngest}}
+        {{range .UnauthenticatedIngest}}
         <li><code>{{.IP}}</code> — {{.Requests}} requests, last {{localTime .LastSeen}}</li>
         {{end}}
     </ul>
@@ -38,11 +44,11 @@
 
 <h2 class="subsection-title">Needs attention</h2>
 <div class="card">
-    {{if .Data.Attention}}
+    {{if .Attention}}
     <table class="data-table">
-        <thead><tr><th>Device</th><th>Status</th><th>Last seen</th><th>Restarts ({{.Data.Monitoring.RestartWindowDays}} d)</th></tr></thead>
+        <thead><tr><th>Device</th><th>Status</th><th>Last seen</th><th>Restarts ({{.Monitoring.RestartWindowDays}} d)</th></tr></thead>
         <tbody>
-            {{range .Data.Attention}}
+            {{range .Attention}}
             <tr>
                 <td><a href="/dashboard/devices/{{pathEscape .Device}}">{{.Device}}</a></td>
                 <td><span class="device-status status-{{.Status}}">{{statusName .Status}}</span></td>
@@ -59,11 +65,11 @@
 
 <h2 class="subsection-title">Latest warnings and errors</h2>
 <div class="card">
-    {{if .Data.Problems}}
+    {{if .Problems}}
     <table class="data-table">
         <thead><tr><th>Timestamp</th><th>Device</th><th>Message</th><th>Level</th></tr></thead>
         <tbody>
-            {{range .Data.Problems}}
+            {{range .Problems}}
             <tr class="log-entry level-{{int .Level}}">
                 <td class="timestamp">{{localTime .Timestamp}}</td>
                 <td>{{.Device}}</td>

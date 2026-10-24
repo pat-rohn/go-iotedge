@@ -1,6 +1,10 @@
 package iotedge
 
-import "github.com/gin-contrib/sessions/cookie"
+import (
+	"time"
+
+	"github.com/gin-contrib/sessions/cookie"
+)
 
 type IoTEdge struct {
 	Port      int
@@ -11,6 +15,9 @@ type IoTEdge struct {
 	password  string
 	// ingestAuth is set by newRouter from IoTConfig.Security.
 	ingestAuth *ingestAuth
+	// liveInterval is how often the overview stream checks for changes
+	// (defaultLiveInterval when zero).
+	liveInterval time.Duration
 }
 
 const (

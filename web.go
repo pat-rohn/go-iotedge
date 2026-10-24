@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -154,10 +155,19 @@ func (s *IoTEdge) renderPageStatus(c *gin.Context, status int, current, title, t
 }
 
 func (s *IoTEdge) overviewPage(c *gin.Context) {
+	data, err := s.overviewData()
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.renderPage(c, URIDashboard, "Overview", "overview.html", data)
+}
+
+// overviewData is what the overview's live part shows.
+func (s *IoTEdge) overviewData() (map[string]any, error) {
 	monitoring, err := s.DeviceDB.GetMonitoringSummary(s.IoTConfig.Monitoring, time.Now())
 	if err != nil {
-		c.String(http.StatusInternalServerError, "failed to read monitoring summary")
-		return
+		return nil, fmt.Errorf("failed to read monitoring summary")
 	}
 	var attention []DeviceMonitoringSummary
 	for _, d := range monitoring.Devices {
@@ -168,15 +178,79 @@ func (s *IoTEdge) overviewPage(c *gin.Context) {
 	warning := Warning
 	problems, err := s.LoggingDB.GetLogMessagesPage(10, 0, LogFilter{MinLevel: &warning})
 	if err != nil {
-		c.String(http.StatusInternalServerError, "failed to read logs")
-		return
+		return nil, fmt.Errorf("failed to read logs")
 	}
-	s.renderPage(c, URIDashboard, "Overview", "overview.html", map[string]any{
+	return map[string]any{
 		"Monitoring":            monitoring,
 		"Attention":             attention,
 		"Problems":              problems,
 		"UnauthenticatedIngest": s.ingestAuth.unauthenticated(),
-	})
+	}, nil
+}
+
+// defaultLiveInterval is how often the overview stream re-checks for changes.
+const defaultLiveInterval = 5 * time.Second
+
+// overviewEvents streams the overview's live part as Server-Sent Events,
+// whenever it changes, until the client leaves or the server stops.
+func (s *IoTEdge) overviewEvents(c *gin.Context) {
+	interval := s.liveInterval
+	if interval <= 0 {
+		interval = defaultLiveInterval
+	}
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no") // let a reverse proxy pass events through
+	c.Status(http.StatusOK)
+	var last string
+	send := func() bool {
+		data, err := s.overviewData()
+		if err != nil {
+			return true // keep the stream; try again next tick
+		}
+		var buf bytes.Buffer
+		if err := pageTemplate("overview.html").ExecuteTemplate(&buf, "overview-live", data); err != nil {
+			slog.Error(fmt.Sprintf("render overview-live: %v", err), "fnct", "overviewEvents")
+			return false
+		}
+		if buf.String() == last {
+			return true
+		}
+		last = buf.String()
+		var event strings.Builder
+		event.WriteString("event: overview\n")
+		for _, line := range strings.Split(strings.TrimSpace(last), "\n") {
+			event.WriteString("data: " + line + "\n")
+		}
+		event.WriteString("\n")
+		if _, err := c.Writer.WriteString(event.String()); err != nil {
+			return false
+		}
+		c.Writer.Flush()
+		return true
+	}
+	if !send() {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	keepAlive := time.NewTicker(25 * time.Second)
+	defer keepAlive.Stop()
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-ticker.C:
+			if !send() {
+				return
+			}
+		case <-keepAlive.C:
+			if _, err := c.Writer.WriteString(": keep-alive\n\n"); err != nil {
+				return
+			}
+			c.Writer.Flush()
+		}
+	}
 }
 
 func (s *IoTEdge) devicesPage(c *gin.Context) {
