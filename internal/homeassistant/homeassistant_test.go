@@ -1,13 +1,15 @@
-package iotedge
+package homeassistant
 
 import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/pat-rohn/go-iotedge/internal/store"
 )
 
 func TestHomeAssistantDiscoveryAndState(t *testing.T) {
-	msgs := homeAssistantDiscovery("dev1")
+	msgs := Discovery("dev1")
 	if len(msgs) != 2 {
 		t.Fatalf("got %d discovery messages", len(msgs))
 	}
@@ -19,11 +21,11 @@ func TestHomeAssistantDiscoveryAndState(t *testing.T) {
 		t.Fatalf("unexpected discovery: %s %v", msgs[0].Topic, cfg)
 	}
 	seen := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	st := homeAssistantState(DeviceMonitoringSummary{Device: "dev1", LastSeen: &seen, Restarts: 3})
+	st := State(store.DeviceMonitoringSummary{Device: "dev1", LastSeen: &seen, Restarts: 3})
 	if len(st) != 2 || st[0].Payload != "2026-01-02T03:04:05Z" || st[1].Payload != "3" {
 		t.Fatalf("unexpected state: %+v", st)
 	}
-	if got := homeAssistantState(DeviceMonitoringSummary{Device: "dev1"}); len(got) != 1 {
+	if got := State(store.DeviceMonitoringSummary{Device: "dev1"}); len(got) != 1 {
 		t.Fatalf("never-seen device must not publish last_seen: %+v", got)
 	}
 }

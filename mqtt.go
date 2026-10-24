@@ -16,6 +16,7 @@ import (
 	mqttserver "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/mochi-mqtt/server/v2/packets"
+	"github.com/pat-rohn/go-iotedge/internal/homeassistant"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 )
@@ -151,10 +152,10 @@ func (h *TimeseriesHandler) publishHomeAssistant(device string) {
 	if !ok {
 		return
 	}
-	for _, m := range homeAssistantDiscovery(device) {
+	for _, m := range homeassistant.Discovery(device) {
 		h.publishRetained(m.Topic, m.Payload)
 	}
-	for _, m := range homeAssistantState(summary) {
+	for _, m := range homeassistant.State(summary) {
 		h.publishRetained(m.Topic, m.Payload)
 	}
 }
