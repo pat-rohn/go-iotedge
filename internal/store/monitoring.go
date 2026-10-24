@@ -1,4 +1,4 @@
-package iotedge
+package store
 
 import (
 	"fmt"
@@ -6,9 +6,10 @@ import (
 	"time"
 )
 
+// Defaults for MonitoringConfig.
 const (
-	defaultOnlineWindowMinutes = 10
-	defaultRestartWindowDays   = 7
+	DefaultOnlineWindowMinutes = 10
+	DefaultRestartWindowDays   = 7
 )
 
 type MonitoringConfig struct {
@@ -47,17 +48,17 @@ type MonitoringSummary struct {
 	Devices             []DeviceMonitoringSummary `json:"devices"`
 }
 
-func (c MonitoringConfig) normalized() MonitoringConfig {
+func (c MonitoringConfig) Normalized() MonitoringConfig {
 	if c.OnlineWindowMinutes == 0 {
-		c.OnlineWindowMinutes = defaultOnlineWindowMinutes
+		c.OnlineWindowMinutes = DefaultOnlineWindowMinutes
 	}
 	if c.RestartWindowDays == 0 {
-		c.RestartWindowDays = defaultRestartWindowDays
+		c.RestartWindowDays = DefaultRestartWindowDays
 	}
 	return c
 }
 
-func (c MonitoringConfig) validate() error {
+func (c MonitoringConfig) Validate() error {
 	if c.OnlineWindowMinutes <= 0 {
 		return fmt.Errorf("Monitoring.OnlineWindowMinutes must be positive")
 	}
@@ -154,8 +155,8 @@ func (devDB *DeviceDB) RecordDeviceActivity(device string, now time.Time) error 
 }
 
 func (devDB *DeviceDB) GetMonitoringSummary(config MonitoringConfig, now time.Time) (MonitoringSummary, error) {
-	config = config.normalized()
-	if err := config.validate(); err != nil {
+	config = config.Normalized()
+	if err := config.Validate(); err != nil {
 		return MonitoringSummary{}, err
 	}
 	restartSince := now.UTC().AddDate(0, 0, -config.RestartWindowDays)

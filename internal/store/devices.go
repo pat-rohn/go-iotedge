@@ -1,4 +1,4 @@
-package iotedge
+package store
 
 import (
 	"errors"
@@ -26,21 +26,24 @@ func OpenDeviceDB(config timeseries.DBConfig) (*DeviceDB, error) {
 		return nil, err
 	}
 	devDB := &DeviceDB{DbHandler: dbh, conf: config}
-	if err := devDB.migrate(); err != nil {
+	if err := devDB.Migrate(); err != nil {
 		dbh.Close()
 		return nil, fmt.Errorf("migrate database schema: %w", err)
 	}
 	return devDB, nil
 }
 
+// Postgres reports whether the database is Postgres (else SQLite).
+func (devDB *DeviceDB) Postgres() bool { return devDB.conf.UsePostgres }
+
 // Logs returns the logs table on the same connection pool.
 func (devDB *DeviceDB) Logs() *LoggingDB {
 	return &LoggingDB{DbHandler: devDB.DbHandler, conf: devDB.conf}
 }
 
-// rebind rewrites '?' placeholders to '$1..$n' when the configured backend is
+// Rebind rewrites '?' placeholders to '$1..$n' when the configured backend is
 // Postgres — lib/pq does not accept '?'.
-func (devDB *DeviceDB) rebind(sqlStr string) string {
+func (devDB *DeviceDB) Rebind(sqlStr string) string {
 	if !devDB.conf.UsePostgres {
 		return sqlStr
 	}
@@ -59,7 +62,7 @@ func (devDB *DeviceDB) rebind(sqlStr string) string {
 
 // RecordDeviceAddress stores the address a device request came from.
 func (devDB *DeviceDB) RecordDeviceAddress(name, address string, now time.Time) error {
-	_, err := devDB.DB.Exec(devDB.rebind(`UPDATE devices SET address = ?, address_seen_at = ? WHERE name = ?`),
+	_, err := devDB.DB.Exec(devDB.Rebind(`UPDATE devices SET address = ?, address_seen_at = ? WHERE name = ?`),
 		address, now.UTC(), name)
 	return err
 }
@@ -82,13 +85,13 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	// Device startup reports the current IP address as its description.
 	// Do not overwrite it for payloads that omit a description.
 	if descr.Description != "" {
-		updateSQL := devDB.rebind("UPDATE devices SET description = ? WHERE name = ?")
+		updateSQL := devDB.Rebind("UPDATE devices SET description = ? WHERE name = ?")
 		if err := devDB.Execute(updateSQL, descr.Description, descr.Name); err != nil {
 			log.WithFields(logFields).Warnf("failed to update description: %v", err)
 		}
 	}
 
-	rows, err := devDB.ExecuteQuery(devDB.rebind("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?"), descr.Name)
+	rows, err := devDB.ExecuteQuery(devDB.Rebind("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?"), descr.Name)
 	if err != nil {
 		return Device{}, err
 	}
@@ -109,7 +112,7 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 func (devDB *DeviceDB) GetDevice(name string) (Device, error) {
 	logFields := log.Fields{"fnct": "GetDevice", "name": name}
 	log.WithFields(logFields).Infof("Find device with name %v", name)
-	rows, err := devDB.ExecuteQuery(devDB.rebind("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?"), name)
+	rows, err := devDB.ExecuteQuery(devDB.Rebind("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?"), name)
 	if err != nil {
 		return Device{}, err
 	}
@@ -219,7 +222,7 @@ func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
 
 func (devDB *DeviceDB) GetSensors(deviceID int) ([]Sensor, error) {
 	var sensors []Sensor
-	rows, err := devDB.ExecuteQuery(devDB.rebind("SELECT id, deviceid, name, sensor_offset FROM sensors WHERE deviceid = ?"), deviceID)
+	rows, err := devDB.ExecuteQuery(devDB.Rebind("SELECT id, deviceid, name, sensor_offset FROM sensors WHERE deviceid = ?"), deviceID)
 	if err != nil {
 		return sensors, err
 	}
@@ -238,7 +241,7 @@ func (devDB *DeviceDB) GetSensors(deviceID int) ([]Sensor, error) {
 }
 
 func (devDB *DeviceDB) Configure(dev Device) error {
-	err := devDB.Execute(devDB.rebind("UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?"),
+	err := devDB.Execute(devDB.Rebind("UPDATE devices SET description = ? , buffer = ? , intervall = ? WHERE id = ?"),
 		dev.Description, dev.Buffer, dev.Interval, dev.ID)
 	if err != nil {
 		return err
@@ -247,7 +250,7 @@ func (devDB *DeviceDB) Configure(dev Device) error {
 }
 
 func (devDB *DeviceDB) ConfigureSensor(sensor Sensor) error {
-	err := devDB.Execute(devDB.rebind("UPDATE sensors SET sensor_offset = ? WHERE deviceid = ? AND name = ?"),
+	err := devDB.Execute(devDB.Rebind("UPDATE sensors SET sensor_offset = ? WHERE deviceid = ? AND name = ?"),
 		sensor.SensorOffset, sensor.DeviceID, sensor.Name)
 	if err != nil {
 		return err
@@ -256,7 +259,7 @@ func (devDB *DeviceDB) ConfigureSensor(sensor Sensor) error {
 }
 
 func (devDB *DeviceDB) InsertSensor(sensor Sensor) error {
-	err := devDB.Execute(devDB.rebind("INSERT INTO sensors (name,deviceid) VALUES (?,?)"), sensor.Name, sensor.DeviceID)
+	err := devDB.Execute(devDB.Rebind("INSERT INTO sensors (name,deviceid) VALUES (?,?)"), sensor.Name, sensor.DeviceID)
 	if err != nil {
 		return err
 	}

@@ -75,7 +75,7 @@ func TestMQTTBrokerFlushesReadingsOnCancel(t *testing.T) {
 		t.Fatalf("StartMQTTBroker: %v", err)
 	}
 	var n int
-	row := iot.DeviceDB.DB.QueryRow(iot.DeviceDB.rebind(
+	row := iot.DeviceDB.DB.QueryRow(iot.DeviceDB.Rebind(
 		"SELECT COUNT(*) FROM "+iot.IoTConfig.TimeseriesTable+" WHERE tag = ?"), tag)
 	if err := row.Scan(&n); err != nil {
 		t.Fatal(err)

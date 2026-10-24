@@ -13,6 +13,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/pat-rohn/go-iotedge/internal/store"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -85,8 +86,8 @@ func New(iotConfig IoTConfig) IoTEdge {
 	if err := s.DeviceDB.CreateTimeseriesTable(iotConfig.TimeseriesTable); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
-	s.IoTConfig.Monitoring = s.IoTConfig.Monitoring.normalized()
-	if err := s.IoTConfig.Monitoring.validate(); err != nil {
+	s.IoTConfig.Monitoring = s.IoTConfig.Monitoring.Normalized()
+	if err := s.IoTConfig.Monitoring.Validate(); err != nil {
 		log.Fatalf("invalid monitoring configuration: %v", err)
 	}
 	if err := s.initIngestAuth(); err != nil {
@@ -132,8 +133,8 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("Password", defaultConfigPassword)
 	viper.SetDefault("SessionSecret", defaultConfigSessionSecret)
 	viper.SetDefault("AllowedOrigins", []string{})
-	viper.SetDefault("Monitoring.OnlineWindowMinutes", defaultOnlineWindowMinutes)
-	viper.SetDefault("Monitoring.RestartWindowDays", defaultRestartWindowDays)
+	viper.SetDefault("Monitoring.OnlineWindowMinutes", store.DefaultOnlineWindowMinutes)
+	viper.SetDefault("Monitoring.RestartWindowDays", store.DefaultRestartWindowDays)
 	viper.SetDefault("Monitoring.HomeAssistantDiscovery", false)
 	viper.SetDefault("Security.RequireCredentials", false)
 	viper.SetDefault("Security.ProtectAdminRoutes", false)

@@ -739,21 +739,4 @@ func TestRegressionInsertDataRetryExhaustionReturnsError(t *testing.T) {
 	}
 }
 
-// TestRegressionRebindPostgresPlaceholders verifies that rebind rewrites '?'
-// placeholders to '$n' for Postgres and leaves SQLite queries untouched.
-func TestRegressionRebindPostgresPlaceholders(t *testing.T) {
-	pg := &DeviceDB{conf: timeseries.DBConfig{UsePostgres: true}}
-	got := pg.rebind("UPDATE sensors SET sensor_offset = ? WHERE deviceid = ? AND name = ?")
-	want := "UPDATE sensors SET sensor_offset = $1 WHERE deviceid = $2 AND name = $3"
-	if got != want {
-		t.Errorf("rebind (postgres):\n got  %q\n want %q", got, want)
-	}
-
-	lite := &DeviceDB{conf: timeseries.DBConfig{UsePostgres: false}}
-	sqlStr := "SELECT id FROM devices WHERE name = ?"
-	if got := lite.rebind(sqlStr); got != sqlStr {
-		t.Errorf("rebind (sqlite) must be a no-op, got %q", got)
-	}
-}
-
 // (cert tests removed — TLS is now delegated to a reverse proxy such as Traefik)

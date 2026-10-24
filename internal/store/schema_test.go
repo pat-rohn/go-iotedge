@@ -1,7 +1,7 @@
-package iotedge
+package store
 
 // schema_test.go — A4 of doc/EDGE_SERVER_WORKBOOK.md: versioned schema
-// migrations instead of DDL spread over GetDeviceDB, GetLoggingDB and New.
+// migrations.
 
 import (
 	"database/sql"
@@ -30,13 +30,11 @@ func appliedVersions(t *testing.T, db *sql.DB) []int {
 }
 
 func TestMigrateIsIdempotentAndRecordsVersions(t *testing.T) {
-	iot := regressionIoT()
-	for i := 0; i < 2; i++ {
-		if err := iot.DeviceDB.migrate(); err != nil {
-			t.Fatalf("migrate (run %d): %v", i+1, err)
-		}
+	db := openTestDB(t) // migrates once
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("second migrate: %v", err)
 	}
-	versions := appliedVersions(t, iot.DeviceDB.DB)
+	versions := appliedVersions(t, db.DB)
 	if len(versions) != len(migrations) {
 		t.Fatalf("applied versions = %v, want one per migration (%d)", versions, len(migrations))
 	}
@@ -88,7 +86,7 @@ func TestMigrateUpgradesLegacySQLiteSchema(t *testing.T) {
 	}
 
 	legacy := &DeviceDB{DbHandler: &timeseries.DbHandler{DB: db}, conf: timeseries.DBConfig{}}
-	if err := legacy.migrate(); err != nil {
+	if err := legacy.Migrate(); err != nil {
 		t.Fatalf("migrate legacy database: %v", err)
 	}
 
@@ -98,7 +96,7 @@ func TestMigrateUpgradesLegacySQLiteSchema(t *testing.T) {
 	if cols := columnNames(t, db, "devices"); !cols["address"] || !cols["address_seen_at"] {
 		t.Errorf("devices columns after migration: %v", cols)
 	}
-	for _, table := range []string{"sensors", "device_health", "device_restarts", forwardOutboxTable} {
+	for _, table := range []string{"sensors", "device_health", "device_restarts", ForwardOutboxTable} {
 		if len(columnNames(t, db, table)) == 0 {
 			t.Errorf("table %s missing after migration", table)
 		}

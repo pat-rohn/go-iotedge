@@ -248,7 +248,7 @@ func TestMQTTBrokerForwardsReadingsInsteadOfStoring(t *testing.T) {
 		return false
 	})
 	var n int
-	row := iot.DeviceDB.DB.QueryRow(iot.DeviceDB.rebind(
+	row := iot.DeviceDB.DB.QueryRow(iot.DeviceDB.Rebind(
 		"SELECT COUNT(*) FROM "+iot.IoTConfig.TimeseriesTable+" WHERE tag = ?"), tag)
 	if err := row.Scan(&n); err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestForwarderIsAcceptedByEnforcingCentral(t *testing.T) {
 		t.Fatalf("deliverDue = %d, %v; want 1, nil", delivered, err)
 	}
 	var n int
-	row := central.DeviceDB.DB.QueryRow(central.DeviceDB.rebind(
+	row := central.DeviceDB.DB.QueryRow(central.DeviceDB.Rebind(
 		"SELECT COUNT(*) FROM "+central.IoTConfig.TimeseriesTable+" WHERE tag = ?"), tag)
 	if err := row.Scan(&n); err != nil || n != 1 {
 		t.Fatalf("central stored %d rows (%v), want 1", n, err)

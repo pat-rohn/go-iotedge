@@ -15,7 +15,7 @@ import (
 func countLogs(t *testing.T, iot *IoTEdge, device, text string) int {
 	t.Helper()
 	db := iot.LoggingDB
-	rows, err := db.DB.Query(iot.DeviceDB.rebind(`SELECT COUNT(*) FROM logs WHERE device = ? AND text = ?`), device, text)
+	rows, err := db.DB.Query(iot.DeviceDB.Rebind(`SELECT COUNT(*) FROM logs WHERE device = ? AND text = ?`), device, text)
 	if err != nil {
 		t.Fatal(err)
 	}

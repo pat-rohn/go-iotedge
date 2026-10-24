@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pat-rohn/go-iotedge/internal/store"
 	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 )
@@ -25,7 +26,7 @@ type ForwardingConfig struct {
 }
 
 const (
-	forwardOutboxTable = "forward_outbox"
+	forwardOutboxTable = store.ForwardOutboxTable
 	forwardBaseBackoff = 10 * time.Second
 	forwardMaxBackoff  = time.Hour
 	// forwardBatchLimit bounds the batches sent per delivery round.
@@ -89,7 +90,7 @@ func (f *forwarder) enqueue(data []timeseries.TimeseriesImportStruct) error {
 		return err
 	}
 	now := f.now().Unix()
-	_, err = f.db.DB.Exec(f.db.rebind(`INSERT INTO `+forwardOutboxTable+
+	_, err = f.db.DB.Exec(f.db.Rebind(`INSERT INTO `+forwardOutboxTable+
 		` (created_at, payload, attempts, next_attempt_at) VALUES (?, ?, 0, ?)`), now, string(payload), now)
 	return err
 }
@@ -114,7 +115,7 @@ type outboxBatch struct {
 func (f *forwarder) deliverDue(ctx context.Context) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	rows, err := f.db.DB.QueryContext(ctx, f.db.rebind(`SELECT id, payload, attempts, next_attempt_at FROM `+forwardOutboxTable+
+	rows, err := f.db.DB.QueryContext(ctx, f.db.Rebind(`SELECT id, payload, attempts, next_attempt_at FROM `+forwardOutboxTable+
 		` ORDER BY id LIMIT ?`), forwardBatchLimit)
 	if err != nil {
 		return 0, err
@@ -141,14 +142,14 @@ func (f *forwarder) deliverDue(ctx context.Context) (int, error) {
 		if err := f.post(ctx, b.payload); err != nil {
 			attempts := b.attempts + 1
 			next := f.now().Add(forwardBackoff(attempts)).Unix()
-			if _, dbErr := f.db.DB.Exec(f.db.rebind(`UPDATE `+forwardOutboxTable+
+			if _, dbErr := f.db.DB.Exec(f.db.Rebind(`UPDATE `+forwardOutboxTable+
 				` SET attempts = ?, next_attempt_at = ? WHERE id = ?`), attempts, next, b.id); dbErr != nil {
 				return delivered, dbErr
 			}
 			f.warn(err)
 			return delivered, err
 		}
-		if _, err := f.db.DB.Exec(f.db.rebind(`DELETE FROM `+forwardOutboxTable+` WHERE id = ?`), b.id); err != nil {
+		if _, err := f.db.DB.Exec(f.db.Rebind(`DELETE FROM `+forwardOutboxTable+` WHERE id = ?`), b.id); err != nil {
 			return delivered, err
 		}
 		delivered++

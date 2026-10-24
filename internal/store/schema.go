@@ -1,4 +1,4 @@
-package iotedge
+package store
 
 import (
 	"database/sql"
@@ -16,6 +16,9 @@ type migration struct {
 	up      func(tx *sql.Tx, postgres bool) error
 }
 
+// ForwardOutboxTable queues batches for go-iotedge's forwarder.
+const ForwardOutboxTable = "forward_outbox"
+
 // migrations lists every schema step. Append new steps; never change or
 // reorder released ones. The timeseries table is created by the timeseries
 // library, not here.
@@ -23,8 +26,8 @@ var migrations = []migration{
 	{1, "baseline", baselineSchema},
 }
 
-// migrate applies the steps the database has not seen yet.
-func (devDB *DeviceDB) migrate() error {
+// Migrate applies the steps the database has not seen yet.
+func (devDB *DeviceDB) Migrate() error {
 	if _, err := devDB.DB.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -62,7 +65,7 @@ func (devDB *DeviceDB) migrate() error {
 			tx.Rollback()
 			return fmt.Errorf("schema migration %d (%s): %w", m.version, m.name, err)
 		}
-		if _, err := tx.Exec(devDB.rebind(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`),
+		if _, err := tx.Exec(devDB.Rebind(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`),
 			m.version, m.name, time.Now().Unix()); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("record schema migration %d: %w", m.version, err)
@@ -134,7 +137,7 @@ func baselineSchema(tx *sql.Tx, postgres bool) error {
 			UNIQUE (device_name, boot_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_device_restarts_device_time ON device_restarts(device_name, occurred_at)`,
-		`CREATE TABLE IF NOT EXISTS ` + forwardOutboxTable + ` (
+		`CREATE TABLE IF NOT EXISTS ` + ForwardOutboxTable + ` (
 			` + bigID + `,
 			created_at BIGINT NOT NULL,
 			payload TEXT NOT NULL,
