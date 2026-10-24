@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -38,16 +39,11 @@ func TestAutomated(t *testing.T) {
 
 func testMain(t *testing.T) {
 	iot := regressionIoT()
-	iot.Port = 3006
+	iot.Port = freePort(t)
 	if err := iot.DeviceDB.CreateTimeseriesTable("measurements"); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		iot.StartSensorServer(ctx)
-	}()
-
-	time.Sleep(time.Second * 2)
+	stop := startTestServer(t, &iot)
 	name := "Dummy" + uuid.NewString()
 	dummy := DummyDevice{
 		Url: fmt.Sprintf("http://localhost:%d", iot.Port),
@@ -78,18 +74,13 @@ func testMain(t *testing.T) {
 		SensorOffset: -4.0,
 	}
 	dummy.configureSensor(t, configureSensorReq)
-	cancel()
-	time.Sleep(time.Second * 2)
+	stop()
 }
 
 func testDBInit(t *testing.T) {
 	iot := regressionIoT()
-	iot.Port = 3006
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		iot.StartSensorServer(ctx)
-	}()
-	time.Sleep(time.Second * 2)
+	iot.Port = freePort(t)
+	stop := startTestServer(t, &iot)
 	for i := range 500 {
 		time.Sleep(100 * time.Nanosecond)
 		name := fmt.Sprintf("DummyOnlyDev%d-%s", i, uuid.New())
@@ -103,19 +94,14 @@ func testDBInit(t *testing.T) {
 			t.Errorf("Init device %s: %v", name, err)
 		}
 	}
-	cancel()
-	time.Sleep(time.Second * 2)
+	stop()
 }
 
 func testInitDevices(t *testing.T) {
 	iot := regressionIoT()
-	iot.Port = 3006
+	iot.Port = freePort(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		iot.StartSensorServer(ctx)
-	}()
-	time.Sleep(2 * time.Second)
+	stop := startTestServer(t, &iot)
 	devicesNr := 500
 	fmt.Printf("Start creating devices %d\n", devicesNr)
 	counter := make(chan int)
@@ -157,8 +143,7 @@ func testInitDevices(t *testing.T) {
 	wg.Wait()
 	close(counter)
 	fmt.Println("Finished")
-	cancel()
-	time.Sleep(time.Second * 2)
+	stop()
 }
 
 func (d *DummyDevice) init(t *testing.T) {
@@ -288,7 +273,8 @@ func (d *DummyDevice) configureSensor(t *testing.T, configureSensorReq Configure
 	fmt.Println(res["json"])
 }
 
-// TestMQTT is a load test: 1000 clients publish for 10 s.
+// TestMQTT is a load test: 1000 clients publish every 100 ms for
+// loadTestDuration.
 func TestMQTT(t *testing.T) {
 	log.SetLevel(log.WarnLevel)
 	_, broker, port := testBroker(t, SecurityConfig{}, false)
@@ -342,12 +328,11 @@ func pubMQTTPaho(port, id int) {
 	opts.OnConnect = h.handleConnected
 	opts.OnConnectionLost = h.handleConnectionLost
 	sensorsClient := mqtt.NewClient(opts)
-	time.Sleep(time.Second * 2)
 	if token := sensorsClient.Connect(); token.Wait() && token.Error() != nil {
 		log.Fatal(token.Error())
 	}
 
-	endTime := time.Now().Add(time.Second * 10)
+	endTime := time.Now().Add(loadTestDuration())
 	nextUploadTime := time.Now()
 	for time.Now().Before(endTime) {
 		topic := fmt.Sprintf("pahoClient/test/Temperature%d/data", id)
@@ -363,16 +348,12 @@ func pubMQTTPaho(port, id int) {
 
 func TestLogging(t *testing.T) {
 	iot := regressionIoT()
-	iot.Port = 3006
+	iot.Port = freePort(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		iot.StartSensorServer(ctx)
-	}()
+	stop := startTestServer(t, &iot)
 	client := http.Client{
 		Timeout: 40 * time.Second,
 	}
-	time.Sleep(time.Second * 2)
 	wg := sync.WaitGroup{}
 	for i := range 10 {
 		time.Sleep(100 * time.Nanosecond)
@@ -409,7 +390,6 @@ func TestLogging(t *testing.T) {
 
 	}
 	wg.Wait()
-	time.Sleep(time.Second * 2)
 	resp, err := client.Get(fmt.Sprintf("http://localhost:%d%s",
 		iot.Port, URIDashboard))
 	if err != nil {
@@ -420,6 +400,38 @@ func TestLogging(t *testing.T) {
 		t.Fatalf("Failed with status: %s", resp.Status)
 	}
 
-	cancel()
-	time.Sleep(time.Second * 2)
+	stop()
+}
+
+// loadTestDuration is how long the load tests publish: 2 s, or 10 s with
+// IOTEDGE_LOAD_TESTS set.
+func loadTestDuration() time.Duration {
+	if os.Getenv("IOTEDGE_LOAD_TESTS") != "" {
+		return 10 * time.Second
+	}
+	return 2 * time.Second
+}
+
+// startTestServer serves iot over HTTP on iot.Port until the returned stop
+// function is called; both wait until the server is up or down.
+func startTestServer(t *testing.T, iot *IoTEdge) (stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- iot.StartSensorServer(ctx) }()
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", iot.Port, URIVersion)
+	eventually(t, "test server up", func() bool {
+		resp, err := http.Get(url)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return true
+	})
+	return func() {
+		cancel()
+		if err := waitReturn(t, done, "StartSensorServer"); err != nil {
+			t.Errorf("StartSensorServer: %v", err)
+		}
+	}
 }
