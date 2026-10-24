@@ -1,0 +1,105 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="csrf-token" content="{{.CSRF}}" />
+        <title>{{.Title}} · IoT Edge</title>
+        <link rel="icon" type="image/svg+xml" href="/static/resources/icon.svg" />
+        <link rel="stylesheet" href="/static/css/style.css" />
+        <script src="/static/js/htmx-2.0.11.min.js" defer></script>
+        <script src="/static/js/htmx-ext-sse-2.2.4.min.js" defer></script>
+    </head>
+    <body hx-headers='{"X-CSRF-Token": "{{.CSRF}}"}'>
+        <div class="topbar" id="topbar">
+            <button class="hamburger" id="hamburger" aria-label="Toggle navigation" aria-expanded="false">
+                <span class="hb-bar"></span>
+                <span class="hb-bar"></span>
+                <span class="hb-bar"></span>
+            </button>
+            <span class="topbar-brand">IoT Edge</span>
+            <button class="topbar-logout" onclick="logout()">Logout</button>
+        </div>
+        <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+        <div class="app-layout">
+            <nav class="sidebar" id="sidebar" aria-label="Main navigation">
+                <div class="sidebar-header">
+                    <img src="/static/resources/icon.svg" alt="" class="sidebar-icon" />
+                    <div><div class="sidebar-title">IoT <span>Edge</span></div></div>
+                </div>
+                <div class="sidebar-group-label">Navigation</div>
+                <ul class="sidebar-nav">
+                    {{range .Nav}}
+                    <li>
+                        <a href="{{.Path}}" class="nav-item{{if eq .Path $.Current}} active{{end}}"{{if eq .Path $.Current}} aria-current="page"{{end}}>
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{.Icon}}</svg>
+                            <span class="nav-label">{{.Title}}</span>
+                        </a>
+                    </li>
+                    {{end}}
+                </ul>
+                <div class="sidebar-footer">
+                    <button class="sidebar-logout-btn" onclick="logout()">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M17 16l4-4m0 0l-4-4m4 4H7" />
+                            <path d="M13 6V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h6a2 2 0 002-2v-1" />
+                        </svg>
+                        Logout
+                    </button>
+                    <div class="build-info">
+                        <span>Built {{.Build.Date}}</span>
+                        <span>{{.Build.Commit}}</span>
+                    </div>
+                </div>
+            </nav>
+
+            <main class="main-content">
+                <section class="content-section active">
+                    {{template "content" .}}
+                </section>
+            </main>
+        </div>
+
+        <script>
+            const hamburger = document.getElementById("hamburger");
+            const sidebar = document.getElementById("sidebar");
+            const backdrop = document.getElementById("sidebar-backdrop");
+            function openSidebar() {
+                sidebar.classList.add("open");
+                backdrop.classList.add("visible");
+                hamburger.classList.add("open");
+                hamburger.setAttribute("aria-expanded", "true");
+            }
+            function closeSidebar() {
+                sidebar.classList.remove("open");
+                backdrop.classList.remove("visible");
+                hamburger.classList.remove("open");
+                hamburger.setAttribute("aria-expanded", "false");
+            }
+            hamburger.addEventListener("click", () => {
+                sidebar.classList.contains("open") ? closeSidebar() : openSidebar();
+            });
+            backdrop.addEventListener("click", closeSidebar);
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") closeSidebar();
+            });
+
+            function toggleSensors(btn) {
+                const detailRow = btn.closest("tr.device-row").nextElementSibling;
+                if (!detailRow || !detailRow.classList.contains("sensor-detail-row")) return;
+                const hidden = detailRow.classList.toggle("hidden");
+                btn.textContent = hidden ? "▶" : "▼";
+                btn.title = hidden ? "Show sensors" : "Hide sensors";
+                btn.setAttribute("aria-expanded", String(!hidden));
+            }
+
+            function logout() {
+                fetch("/logout", { method: "POST", credentials: "same-origin" })
+                    .finally(() => { window.location.href = "/"; });
+            }
+        </script>
+    </body>
+</html>{{end}}

@@ -1,0 +1,81 @@
+{{define "content"}}
+<div class="section-header">
+    <div class="section-title-area">
+        <h1 class="section-title">Overview</h1>
+        <p class="section-subtitle">{{len .Data.Monitoring.Devices}} device(s)</p>
+    </div>
+</div>
+
+<div class="monitoring-grid" aria-label="Device monitoring summary">
+    <div class="monitoring-card monitoring-card-online">
+        <span class="monitoring-card-label">Online</span>
+        <strong>{{.Data.Monitoring.Online}}</strong>
+        <span>seen within {{.Data.Monitoring.OnlineWindowMinutes}} min</span>
+    </div>
+    <div class="monitoring-card monitoring-card-stale">
+        <span class="monitoring-card-label">Stale</span>
+        <strong>{{.Data.Monitoring.Stale}}</strong>
+        <span>last activity is older</span>
+    </div>
+    <div class="monitoring-card monitoring-card-unknown">
+        <span class="monitoring-card-label">Never seen</span>
+        <strong>{{.Data.Monitoring.NeverSeen}}</strong>
+        <span>no telemetry or health report</span>
+    </div>
+</div>
+
+{{if .Data.UnauthenticatedIngest}}
+<div class="ingest-warning" role="status">
+    <strong>Device data without ingest token</strong>
+    <span>Accepted because <code>Security.IngestAuth</code> is <code>warn</code>. Update these devices before switching to <code>enforce</code>.</span>
+    <ul>
+        {{range .Data.UnauthenticatedIngest}}
+        <li><code>{{.IP}}</code> — {{.Requests}} requests, last {{.LastSeen.Format "2006-01-02 15:04:05"}}</li>
+        {{end}}
+    </ul>
+</div>
+{{end}}
+
+<h2 class="subsection-title">Needs attention</h2>
+<div class="card">
+    {{if .Data.Attention}}
+    <table class="data-table">
+        <thead><tr><th>Device</th><th>Status</th><th>Last seen</th><th>Restarts ({{.Data.Monitoring.RestartWindowDays}} d)</th></tr></thead>
+        <tbody>
+            {{range .Data.Attention}}
+            <tr>
+                <td><a href="/dashboard/devices#{{.Device}}">{{.Device}}</a></td>
+                <td><span class="device-status status-{{.Status}}">{{statusName .Status}}</span></td>
+                <td>{{if .LastSeen}}{{.LastSeen.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+                <td>{{.Restarts}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="empty-state">All devices are online.</p>
+    {{end}}
+</div>
+
+<h2 class="subsection-title">Latest warnings and errors</h2>
+<div class="card">
+    {{if .Data.Problems}}
+    <table class="data-table">
+        <thead><tr><th>Timestamp</th><th>Device</th><th>Message</th><th>Level</th></tr></thead>
+        <tbody>
+            {{range .Data.Problems}}
+            <tr class="log-entry level-{{int .Level}}">
+                <td class="timestamp">{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+                <td>{{.Device}}</td>
+                <td>{{.Text}}</td>
+                <td class="level"><span class="level-badge">{{levelName .Level}}</span></td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    <p class="card-footer"><a href="/dashboard/logs?log_min_level=2">All warnings and errors</a></p>
+    {{else}}
+    <p class="empty-state">No warnings or errors.</p>
+    {{end}}
+</div>
+{{end}}

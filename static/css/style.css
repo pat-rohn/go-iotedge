@@ -630,22 +630,22 @@ button {
 }
 
 /* ============================================================
-   Devices Table
+   Data tables
    ============================================================ */
-#devices-table {
+.data-table {
     width: 100%;
     border-collapse: collapse;
 }
 
-#devices-table th,
-#devices-table td {
+.data-table th,
+.data-table td {
     padding: 0.75rem 1rem;
     text-align: left;
     border-bottom: 1px solid var(--c-border);
     font-size: 0.875rem;
 }
 
-#devices-table th {
+.data-table th {
     font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -654,11 +654,12 @@ button {
     background: #f8fafc;
 }
 
-#devices-table tbody tr.device-row:last-of-type td {
+.data-table tbody tr:last-child td,
+.data-table tbody tr.device-row:last-of-type td {
     border-bottom: none;
 }
 
-#devices-table tr.device-row:hover td {
+.data-table tbody tr:hover td {
     background: #f8fafc;
 }
 
@@ -749,38 +750,6 @@ button {
     font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
 }
 
-/* ============================================================
-   Logs Table
-   ============================================================ */
-#logs-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-#logs-table th,
-#logs-table td {
-    padding: 0.75rem 1rem;
-    text-align: left;
-    border-bottom: 1px solid var(--c-border);
-    font-size: 0.875rem;
-}
-
-#logs-table th {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--c-text-secondary);
-    background: #f8fafc;
-}
-
-#logs-table tbody tr:last-child td {
-    border-bottom: none;
-}
-#logs-table tbody tr:hover td {
-    background: #f8fafc;
-}
-
 .timestamp {
     white-space: nowrap;
     font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
@@ -788,13 +757,8 @@ button {
     color: var(--c-text-secondary);
 }
 
-/* Log level badge (CSS-only: hide the raw integer, show the label) */
-td.level {
-    font-size: 0;
-    line-height: 0;
-}
-
-td.level::after {
+/* Log level badge */
+.level-badge {
     display: inline-flex;
     align-items: center;
     padding: 2px 9px;
@@ -804,25 +768,18 @@ td.level::after {
     letter-spacing: 0.04em;
     text-transform: uppercase;
     line-height: 1.6;
-}
-
-.log-entry.level-0 td.level::after {
-    content: "DEBUG";
     background: var(--c-debug-bg);
     color: var(--c-debug);
 }
-.log-entry.level-1 td.level::after {
-    content: "INFO";
+.log-entry.level-1 .level-badge {
     background: var(--c-accent-bg);
     color: var(--c-accent);
 }
-.log-entry.level-2 td.level::after {
-    content: "WARN";
+.log-entry.level-2 .level-badge {
     background: var(--c-warning-bg);
     color: var(--c-warning);
 }
-.log-entry.level-3 td.level::after {
-    content: "ERROR";
+.log-entry.level-3 .level-badge {
     background: var(--c-error-bg);
     color: var(--c-error);
 }
@@ -885,10 +842,10 @@ td.level::after {
     }
 
     /* Hide description and buffer columns on narrow screens. */
-    #devices-table th:nth-child(4),
-    #devices-table td:nth-child(4),
-    #devices-table th:nth-child(6),
-    #devices-table td:nth-child(6) {
+    .data-table th:nth-child(4),
+    .data-table td:nth-child(4),
+    .data-table th:nth-child(6),
+    .data-table td:nth-child(6) {
         display: none;
     }
 
@@ -897,4 +854,67 @@ td.level::after {
         min-width: 0;
         word-break: break-word;
     }
+}
+
+/* ============================================================
+   Page sections, forms, empty states
+   ============================================================ */
+.subsection-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--c-text-primary);
+    margin: 1.75rem 0 0.75rem;
+}
+
+.empty-state {
+    color: var(--c-text-secondary);
+    font-size: 0.875rem;
+    padding: 1rem 1.125rem;
+}
+
+.card-footer {
+    border-top: 1px solid var(--c-border);
+    font-size: 0.875rem;
+    padding: 0.75rem 1rem;
+}
+
+.card-footer a,
+.data-table a {
+    color: var(--c-accent-dark);
+}
+
+.log-filters {
+    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.log-filters label,
+.form-field {
+    color: var(--c-text-secondary);
+    display: grid;
+    font-size: 0.75rem;
+    font-weight: 600;
+    gap: 0.25rem;
+}
+
+.log-filters input,
+.log-filters select,
+.form-field input {
+    background: var(--c-card-bg);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-md);
+    color: var(--c-text-primary);
+    font: inherit;
+    font-size: 0.875rem;
+    min-height: 2.25rem;
+    padding: 0.375rem 0.625rem;
+}
+
+.log-pagination {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
 }

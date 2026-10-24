@@ -88,7 +88,7 @@ func TestDashboardLinksDeviceAddress(t *testing.T) {
 	name := "addr-dash-" + uuid.NewString()
 	serveIngest(router, URIInitDevice, map[string]any{"Device": DeviceDesc{Name: name}}, "", "192.0.2.30:5000")
 	cookie := login(t, router)
-	w := serve(router, http.MethodGet, URIDashboard, nil, cookie)
+	w := serve(router, http.MethodGet, URIDashboard+"/devices", nil, cookie)
 	if !strings.Contains(w.Body.String(), `href="http://192.0.2.30/"`) {
 		t.Fatal("dashboard does not link the device address")
 	}

@@ -42,7 +42,17 @@ func (s *IoTEdge) VersionHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, CurrentVersion())
 }
 
+// DashboardHandler serves the overview page, or the dashboard data as JSON
+// for Accept: application/json.
 func (s *IoTEdge) DashboardHandler(c *gin.Context) {
+	if c.GetHeader("Accept") != "application/json" {
+		s.overviewPage(c)
+		return
+	}
+	s.dashboardJSON(c)
+}
+
+func (s *IoTEdge) dashboardJSON(c *gin.Context) {
 	logFields := []any{"fnct", "DashboardHandler"}
 	offset, filter, err := parseLogRequest(c)
 	if err != nil {
@@ -77,30 +87,7 @@ func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 		next = &value
 	}
 	unauthenticated := s.ingestAuth.unauthenticated()
-	if c.GetHeader("Accept") == "application/json" {
-		c.JSON(http.StatusOK, DashboardResponse{Logs: logs, Devices: devices, Monitoring: monitoring, LogOffset: offset, PrevLogOffset: previous, NextLogOffset: next, UnauthenticatedIngest: unauthenticated})
-		return
-	}
-	c.HTML(http.StatusOK, "dashboard.html", gin.H{
-		"Build":                 CurrentVersion(),
-		"Logs":                  logs,
-		"Devices":               devices,
-		"Monitoring":            monitoring,
-		"LogOffset":             offset,
-		"PrevLogOffset":         previous,
-		"NextLogOffset":         next,
-		"LogFilter":             filter,
-		"LogQuery":              logFilterQuery(filter),
-		"UnauthenticatedIngest": unauthenticated,
-		"MonitoringByDevice": func() map[string]DeviceMonitoringSummary {
-			byDevice := make(map[string]DeviceMonitoringSummary, len(monitoring.Devices))
-			for _, device := range monitoring.Devices {
-				byDevice[device.Device] = device
-			}
-
-			return byDevice
-		}(),
-	})
+	c.JSON(http.StatusOK, DashboardResponse{Logs: logs, Devices: devices, Monitoring: monitoring, LogOffset: offset, PrevLogOffset: previous, NextLogOffset: next, UnauthenticatedIngest: unauthenticated})
 }
 
 func logFilterQuery(filter LogFilter) string {
@@ -110,6 +97,9 @@ func logFilterQuery(filter LogFilter) string {
 	}
 	if filter.Level != nil {
 		values.Set("log_level", strconv.Itoa(int(*filter.Level)))
+	}
+	if filter.MinLevel != nil {
+		values.Set("log_min_level", strconv.Itoa(int(*filter.MinLevel)))
 	}
 	return values.Encode()
 }
@@ -131,6 +121,14 @@ func parseLogRequest(c *gin.Context) (int, LogFilter, error) {
 		}
 		level := Loglevel(value)
 		filter.Level = &level
+	}
+	if raw := c.Query("log_min_level"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < int(Debug) || value > int(Error) {
+			return 0, LogFilter{}, fmt.Errorf("log_min_level must be between %d and %d", Debug, Error)
+		}
+		level := Loglevel(value)
+		filter.MinLevel = &level
 	}
 	return offset, filter, nil
 }

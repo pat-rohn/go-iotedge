@@ -27,6 +27,8 @@ type LogMessage struct {
 type LogFilter struct {
 	Device string
 	Level  *Loglevel
+	// MinLevel keeps messages at this level and above.
+	MinLevel *Loglevel
 }
 
 type LoggingDB struct {
@@ -65,31 +67,22 @@ func (l *LoggingDB) GetLogMessagesPage(limit, offset int, filter LogFilter) ([]L
 		return nil, fmt.Errorf("offset must not be negative")
 	}
 	// Select only the columns needed for scanning; id is not projected here.
-	var sqlStr string
+	sqlStr := `SELECT timestamp, device, text, level FROM logs WHERE 1=1`
 	args := []any{}
-	if l.conf.UsePostgres {
-		sqlStr = `SELECT timestamp, device, text, level FROM logs WHERE 1=1`
-		if filter.Device != "" {
-			sqlStr += ` AND device = $1`
-			args = append(args, filter.Device)
-		}
-		if filter.Level != nil {
-			sqlStr += fmt.Sprintf(` AND level = $%d`, len(args)+1)
-			args = append(args, int(*filter.Level))
-		}
-		sqlStr += fmt.Sprintf(` ORDER BY timestamp DESC, id DESC LIMIT $%d OFFSET $%d`, len(args)+1, len(args)+2)
-	} else {
-		sqlStr = `SELECT timestamp, device, text, level FROM logs WHERE 1=1`
-		if filter.Device != "" {
-			sqlStr += ` AND device = ?`
-			args = append(args, filter.Device)
-		}
-		if filter.Level != nil {
-			sqlStr += ` AND level = ?`
-			args = append(args, int(*filter.Level))
-		}
-		sqlStr += ` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`
+	if filter.Device != "" {
+		sqlStr += ` AND device = ?`
+		args = append(args, filter.Device)
 	}
+	if filter.Level != nil {
+		sqlStr += ` AND level = ?`
+		args = append(args, int(*filter.Level))
+	}
+	if filter.MinLevel != nil {
+		sqlStr += ` AND level >= ?`
+		args = append(args, int(*filter.MinLevel))
+	}
+	sqlStr += ` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`
+	sqlStr = (&DeviceDB{conf: l.conf}).Rebind(sqlStr)
 	args = append(args, limit, offset)
 	rows, err := l.ExecuteQuery(sqlStr, args...)
 	if err != nil {

@@ -1,0 +1,48 @@
+{{define "content"}}
+<div class="section-header">
+    <div class="section-title-area">
+        <h1 class="section-title">Logs</h1>
+        <p class="section-subtitle">{{len .Data.Logs}} entries — newest first</p>
+    </div>
+</div>
+
+<form class="log-filters" method="get" action="/dashboard/logs">
+    <label>
+        Device
+        <input name="log_device" value="{{.Data.Filter.Device}}" list="log-devices" />
+        <datalist id="log-devices">{{range .Data.Devices}}<option value="{{.Name}}"></option>{{end}}</datalist>
+    </label>
+    <label>
+        Level
+        <select name="log_level">
+            <option value="">All</option>
+            {{range .Data.Levels}}
+            <option value="{{int .}}"{{if $.Data.Filter.Level}}{{if eq (int .) (int (deref $.Data.Filter.Level))}} selected{{end}}{{end}}>{{levelName .}}</option>
+            {{end}}
+        </select>
+    </label>
+    <input type="hidden" name="log_offset" value="0" />
+    <button class="btn-refresh" type="submit">Filter</button>
+</form>
+<div class="card">
+    <table id="logs-table" class="data-table">
+        <thead><tr><th>Timestamp</th><th>Device</th><th>Message</th><th>Level</th></tr></thead>
+        <tbody>
+            {{range .Data.Logs}}
+            <tr class="log-entry level-{{int .Level}}">
+                <td class="timestamp">{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+                <td>{{.Device}}</td>
+                <td>{{.Text}}</td>
+                <td class="level"><span class="level-badge">{{levelName .Level}}</span></td>
+            </tr>
+            {{else}}
+            <tr><td colspan="4" class="empty-state">No log messages.</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+<div class="log-pagination">
+    {{if .Data.PrevOffset}}<a class="btn-refresh" href="/dashboard/logs?log_offset={{.Data.PrevOffset}}&amp;{{.Data.Query}}">Previous</a>{{end}}
+    {{if .Data.NextOffset}}<a class="btn-refresh" href="/dashboard/logs?log_offset={{.Data.NextOffset}}&amp;{{.Data.Query}}">Next</a>{{end}}
+</div>
+{{end}}

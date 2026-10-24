@@ -95,7 +95,7 @@ func TestSecurityLogoutExpiresSessionCookie(t *testing.T) {
 }
 
 func TestSecurityDashboardLogoutUsesServer(t *testing.T) {
-	data, err := templatesFS.ReadFile("templates/dashboard.html")
+	data, err := templatesFS.ReadFile("templates/layout.html")
 	if err != nil {
 		t.Fatal(err)
 	}

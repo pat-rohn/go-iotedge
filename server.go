@@ -254,6 +254,10 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 		c.Request.URL.Path = "/static/css" + path
 		staticServer.ServeHTTP(c.Writer, c.Request)
 	})
+	router.GET("/static/js/*filepath", func(c *gin.Context) {
+		c.Request.URL.Path = "/static/js" + c.Param("filepath")
+		staticServer.ServeHTTP(c.Writer, c.Request)
+	})
 	router.GET("/static/resources/*filepath", func(c *gin.Context) {
 		path := c.Param("filepath")
 		c.Request.URL.Path = "/static/resources" + path
@@ -274,6 +278,8 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	router.POST(URILogout, s.LogoutHandler)
 	router.GET(URIVersion, s.VersionHandler)
 	router.GET(URIDashboard, s.AuthenticationHandler, s.DashboardHandler)
+	router.GET(URIDashboard+"/devices", s.AuthenticationHandler, s.devicesPage)
+	router.GET(URIDashboard+"/logs", s.AuthenticationHandler, s.logsPage)
 	router.POST(URIUploadData, s.ingestAuth.handler, s.UploadDataHandler)
 	router.POST(URISaveTimeseries, s.ingestAuth.handler, s.SaveTimeseriesHandler)
 	router.POST(URIInitDevice, s.ingestAuth.handler, s.InitDeviceHandler)

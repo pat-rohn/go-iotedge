@@ -1,0 +1,109 @@
+{{define "content"}}
+<div class="section-header">
+    <div class="section-title-area">
+        <h1 class="section-title">Devices</h1>
+        <p class="section-subtitle">{{len .Data.Devices}} registered device(s)</p>
+    </div>
+</div>
+
+<div class="card">
+    <table id="devices-table" class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 40px"></th>
+                <th>ID</th>
+                <th>Device</th>
+                <th>Address</th>
+                <th>Description</th>
+                <th>Interval (s)</th>
+                <th>Buffer</th>
+                <th>Sensors</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Data.Devices}}
+            {{$monitor := index $.Data.MonitoringByDevice .Name}}
+            <tr class="device-row" id="{{.Name}}">
+                <td>
+                    {{if .Sensors}}
+                    <button
+                        class="expand-btn"
+                        onclick="toggleSensors(this)"
+                        title="Show sensors"
+                        aria-expanded="false"
+                    >
+                        ▶
+                    </button>
+                    {{end}}
+                </td>
+                <td>{{.ID}}</td>
+                <td class="device-name">
+                    <div>{{.Name}}</div>
+                    <div class="device-monitoring">
+                        <span class="device-status status-{{$monitor.Status}}">
+                        {{statusName $monitor.Status}}
+                        </span>
+                        {{if $monitor.FirmwareVersion}}
+                        <span>{{$monitor.FirmwareVersion}}</span>
+                        {{end}}
+                        {{if $monitor.LastSeen}}
+                        <span>seen {{$monitor.LastSeen.Format "2006-01-02 15:04"}}</span>
+                        {{end}}
+                        {{if gt $monitor.Restarts 0}}
+                        <span>{{$monitor.Restarts}} restart{{if gt $monitor.Restarts 1}}s{{end}}/{{$.Data.Monitoring.RestartWindowDays}}d</span>
+                        {{end}}
+                    </div>
+                </td>
+                <td class="device-address">
+                    {{if .Address}}
+                    <a href="{{.URL}}" target="_blank" rel="noopener">{{.Address}}</a>
+                    {{if .AddressSeenAt}}<span>seen {{.AddressSeenAt.Format "2006-01-02 15:04"}}</span>{{end}}
+                    {{else}}
+                    <span class="no-sensors">—</span>
+                    {{end}}
+                </td>
+                <td>{{.Description}}</td>
+                <td>{{.Interval}}</td>
+                <td>{{.Buffer}}</td>
+                <td>
+                    {{if .Sensors}}
+                    <span class="sensor-count">
+                        {{len .Sensors}} sensor{{if gt (len
+                        .Sensors) 1}}s{{end}}
+                    </span>
+                    {{else}}
+                    <span class="no-sensors">—</span>
+                    {{end}}
+                </td>
+            </tr>
+            {{if .Sensors}}
+            <tr class="sensor-detail-row hidden">
+                <td></td>
+                <td colspan="8">
+                    <table class="sensor-table">
+                        <thead>
+                            <tr>
+                                <th>Sensor ID</th>
+                                <th>Name</th>
+                                <th>Offset</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Sensors}}
+                            <tr>
+                                <td>{{.ID}}</td>
+                                <td class="sensor-name">
+                                    {{.Name}}
+                                </td>
+                                <td>{{.SensorOffset}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </td>
+            </tr>
+            {{end}} {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
