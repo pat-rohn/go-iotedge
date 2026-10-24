@@ -46,7 +46,7 @@
 <div class="card">
     {{if .Attention}}
     <table class="data-table">
-        <thead><tr><th>Device</th><th>Status</th><th>Last seen</th><th>Restarts ({{.Monitoring.RestartWindowDays}} d)</th></tr></thead>
+        <thead><tr><th scope="col">Device</th><th scope="col">Status</th><th scope="col">Last seen</th><th scope="col">Restarts ({{.Monitoring.RestartWindowDays}} d)</th></tr></thead>
         <tbody>
             {{range .Attention}}
             <tr>
@@ -67,7 +67,7 @@
 <div class="card">
     {{if .Problems}}
     <table class="data-table">
-        <thead><tr><th>Timestamp</th><th>Device</th><th>Message</th><th>Level</th></tr></thead>
+        <thead><tr><th scope="col">Timestamp</th><th scope="col">Device</th><th scope="col">Message</th><th scope="col">Level</th></tr></thead>
         <tbody>
             {{range .Problems}}
             <tr class="log-entry level-{{int .Level}}">

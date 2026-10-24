@@ -148,6 +148,7 @@
         const head = table.createTHead().insertRow();
         for (const label of ["Time", `${chart.Title} (${chart.Unit})`]) {
             const th = document.createElement("th");
+            th.scope = "col";
             th.textContent = label;
             head.appendChild(th);
         }

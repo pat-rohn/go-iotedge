@@ -45,7 +45,7 @@
 <h2 class="subsection-title">Sensors</h2>
 <div class="card">
     <table class="data-table">
-        <thead><tr><th>Sensor</th><th>Offset</th><th></th></tr></thead>
+        <thead><tr><th scope="col">Sensor</th><th scope="col">Offset</th><th scope="col"></th></tr></thead>
         <tbody>
             {{range $d.Sensors}}{{template "sensor-row" (dict "Device" $d "Sensor" .)}}{{end}}
         </tbody>
@@ -57,7 +57,7 @@
 <div class="card">
     {{if .Data.Restarts}}
     <table class="data-table">
-        <thead><tr><th>Started</th><th>Boot ID</th></tr></thead>
+        <thead><tr><th scope="col">Started</th><th scope="col">Boot ID</th></tr></thead>
         <tbody>
             {{range .Data.Restarts}}
             <tr><td class="timestamp">{{localTime .OccurredAt}}</td><td><code>{{.BootID}}</code></td></tr>
@@ -73,7 +73,7 @@
 <div class="card">
     {{if .Data.Logs}}
     <table class="data-table">
-        <thead><tr><th>Timestamp</th><th>Message</th><th>Level</th></tr></thead>
+        <thead><tr><th scope="col">Timestamp</th><th scope="col">Message</th><th scope="col">Level</th></tr></thead>
         <tbody>
             {{range .Data.Logs}}
             <tr class="log-entry level-{{int .Level}}">
