@@ -15,3 +15,5 @@ iot.db-wal
 cmd/IoTServer/iot.db
 cmd/IoTServer/iot.db-shm
 cmd/IoTServer/iot.db-wal
+.github/skills/*
+doc/EDGE_SERVER_WORKBOOK.md
