@@ -8,10 +8,8 @@ import (
 	"testing"
 )
 
-// TestMain runs all tests and then closes the shared DB singleton so that
-// SQLite can flush the WAL, checkpoint, and remove the -wal / -shm sidecar
-// files before the process exits.  Without an explicit Close() the OS merely
-// reclaims file handles and SQLite never gets to clean up.
+// TestMain picks the database (SQLite, or Postgres with IOTEDGE_TEST_POSTGRES),
+// runs all tests and closes the shared test database.
 func TestMain(m *testing.M) {
 	stopPostgres, err := startTestPostgres()
 	if err != nil {
@@ -20,17 +18,9 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 
-	// dbhandler is the package-level *timeseries.DbHandler set by
-	// GetDeviceDB / GetLoggingDB.  Calling Close() on it:
-	//   1. Issues PRAGMA journal_mode=DELETE  → SQLite checkpoints the WAL
-	//      and removes the -wal / -shm files.
-	//   2. Closes the underlying sql.DB connection pool.
-	//   3. Resets the timeseries package singleton so future opens are fresh.
-	if dbhandler != nil {
-		if err := dbhandler.Close(); err != nil {
-			// Non-fatal: log and continue so os.Exit still runs.
-			_ = err
-		}
+	// Closing lets SQLite checkpoint the WAL and remove its sidecar files.
+	if sharedIoT.DeviceDB != nil {
+		sharedIoT.Close()
 	}
 
 	if stopPostgres != nil {

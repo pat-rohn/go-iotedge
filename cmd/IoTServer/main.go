@@ -9,7 +9,6 @@ import (
 	"syscall"
 
 	iotedge "github.com/pat-rohn/go-iotedge"
-	"github.com/pat-rohn/timeseries"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -166,8 +165,8 @@ func main() {
 
 func CreateTimeseriesTable() error {
 	iotConfig := iotedge.New(iotedge.GetConfig())
-	db := timeseries.DBHandler(iotConfig.IoTConfig.DbConfig)
-	if err := db.CreateTimeseriesTable(iotConfig.IoTConfig.TimeseriesTable); err != nil {
+	defer iotConfig.Close()
+	if err := iotConfig.DeviceDB.CreateTimeseriesTable(iotConfig.IoTConfig.TimeseriesTable); err != nil {
 		log.Errorf("failed to create DB: %v", err)
 		return err
 	}

@@ -71,12 +71,15 @@ func withLogHook(fn func(h *logHook)) {
 	fn(h)
 }
 
-// regressionIoT returns a shared IoTEdge backed by the default test config.
-// All regression tests share the same singleton DB (by design of the package),
-// so every test uses unique names to avoid interference.
+var sharedIoT IoTEdge
+var sharedIoTOnce sync.Once
+
+// regressionIoT returns a copy of one IoTEdge on the test database. Tests may
+// change the copy's IoTConfig; they share the database, so every test uses
+// unique names to avoid interference.
 func regressionIoT() IoTEdge {
-	cfg := GetConfig()
-	return New(cfg)
+	sharedIoTOnce.Do(func() { sharedIoT = New(GetConfig()) })
+	return sharedIoT
 }
 
 // newTestRouter builds a minimal Gin router wired to an IoTEdge instance.
@@ -315,7 +318,7 @@ func TestRegressionSendSensorDataCommentsShape(t *testing.T) {
 // device row exists and all goroutines receive the same ID without error.
 // Covers workbook item #10.
 func TestRegressionConcurrentGetOrCreateDevice(t *testing.T) {
-	db := GetDeviceDB(GetConfig().DbConfig)
+	db := regressionIoT().DeviceDB
 	name := "concurrent-" + uuid.NewString()
 
 	const n = 30
@@ -416,7 +419,7 @@ func TestRegressionNoDuplicateSensorsAfterDoubleInit(t *testing.T) {
 // collisions would cause errors; the new AUTOINCREMENT id PK eliminates them.
 // Covers workbook item #12.
 func TestRegressionLoggingNoDuplicateTimestampConflict(t *testing.T) {
-	ldb := GetLoggingDB(GetConfig().DbConfig)
+	ldb := regressionIoT().LoggingDB
 	device := "log-pk-" + uuid.NewString()
 
 	const count = 200
@@ -508,10 +511,8 @@ func TestRegressionVersionEndpointReturnsBuildMetadata(t *testing.T) {
 // in AllowedOrigins is NOT echoed back in Access-Control-Allow-Origin.
 // Covers workbook item #15.
 func TestRegressionCORSDoesNotReflectArbitraryOrigin(t *testing.T) {
-	cfg := GetConfig()
-	cfg.AllowedOrigins = []string{"https://trusted.example.com"}
-	iot := New(cfg)
-	iot.IoTConfig.AllowedOrigins = cfg.AllowedOrigins
+	iot := regressionIoT()
+	iot.IoTConfig.AllowedOrigins = []string{"https://trusted.example.com"}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -583,11 +584,7 @@ func TestRegressionGetDevicesConfigsReturnsCorrectData(t *testing.T) {
 // Covers workbook item #23.
 func TestRegressionInsertDataReturnsErrorWhenTimeIsExhausted(t *testing.T) {
 	cfg := GetConfig()
-	// NOTE: do NOT call db.Close() here.  timeseries.DBHandler() is a global
-	// singleton.  Closing it invalidates the deviceDB reference held by
-	// GetDeviceDB() and causes all subsequent tests to fail with
-	// "sql: database is closed".
-	db := timeseries.DBHandler(cfg.DbConfig)
+	db := regressionIoT().DeviceDB.DbHandler
 
 	if err := db.CreateTimeseriesTable(cfg.TimeseriesTable); err != nil {
 		t.Fatalf("create table: %v", err)
@@ -728,8 +725,7 @@ func TestRegressionInitRegistersSensors(t *testing.T) {
 // returns a non-nil error when a series can never be inserted (retry window
 // exhausted), instead of silently dropping it.
 func TestRegressionInsertDataRetryExhaustionReturnsError(t *testing.T) {
-	cfg := GetConfig()
-	db := timeseries.DBHandler(cfg.DbConfig)
+	db := regressionIoT().DeviceDB.DbHandler
 
 	data := []timeseries.TimeseriesImportStruct{
 		{Tag: "tag-" + uuid.NewString(), Timestamps: []string{"2024-01-01 00:00:00"}, Values: []string{"1.0"}},

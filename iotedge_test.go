@@ -34,18 +34,12 @@ func TestAutomated(t *testing.T) {
 	testMain(t)
 	testDBInit(t)
 	testInitDevices(t)
-	// NOTE: do NOT close the timeseries.DBHandler singleton here.
-	// Closing it would invalidate deviceDB / loggingDB and cause all
-	// subsequent tests (TestMQTT, TestLogging) to fail with
-	// "sql: database is closed".
 }
 
 func testMain(t *testing.T) {
-	config := GetConfig()
-	iot := New(config)
+	iot := regressionIoT()
 	iot.Port = 3006
-	db := timeseries.DBHandler(config.DbConfig)
-	if err := db.CreateTimeseriesTable("measurements"); err != nil {
+	if err := iot.DeviceDB.CreateTimeseriesTable("measurements"); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -89,7 +83,7 @@ func testMain(t *testing.T) {
 }
 
 func testDBInit(t *testing.T) {
-	iot := New(GetConfig())
+	iot := regressionIoT()
 	iot.Port = 3006
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -114,7 +108,7 @@ func testDBInit(t *testing.T) {
 }
 
 func testInitDevices(t *testing.T) {
-	iot := New(GetConfig())
+	iot := regressionIoT()
 	iot.Port = 3006
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -368,8 +362,7 @@ func pubMQTTPaho(port, id int) {
 }
 
 func TestLogging(t *testing.T) {
-	config := GetConfig()
-	iot := New(config)
+	iot := regressionIoT()
 	iot.Port = 3006
 
 	ctx, cancel := context.WithCancel(context.Background())

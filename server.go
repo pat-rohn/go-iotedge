@@ -76,7 +76,12 @@ func New(iotConfig IoTConfig) IoTEdge {
 	logFields := log.Fields{"fnct": "New"}
 	log.WithFields(logFields).Tracef("Config %+v", iotConfig)
 	s := IoTEdge{Port: iotConfig.Port, IoTConfig: iotConfig}
-	s.DeviceDB = GetDeviceDB(iotConfig.DbConfig)
+	deviceDB, err := OpenDeviceDB(iotConfig.DbConfig)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	s.DeviceDB = deviceDB
+	s.LoggingDB = deviceDB.Logs()
 	if err := s.DeviceDB.CreateTimeseriesTable(iotConfig.TimeseriesTable); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
@@ -98,11 +103,13 @@ func New(iotConfig IoTConfig) IoTEdge {
 		log.Fatalf("invalid LogPersistLevel %q: %v", s.IoTConfig.LogPersistLevel, err)
 	}
 	setLogPersistLevel(persistLevel)
-	loggerDB := GetLoggingDB(iotConfig.DbConfig)
-	if loggerDB == nil {
-		log.Fatalf("failed to create logging DB")
-	}
+	persistServerLogs(s.LoggingDB)
 	return s
+}
+
+// Close closes the database.
+func (s *IoTEdge) Close() error {
+	return s.DeviceDB.Close()
 }
 
 func GetConfig() IoTConfig {

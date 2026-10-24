@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/pat-rohn/timeseries"
@@ -19,64 +18,24 @@ type DeviceDB struct {
 	conf timeseries.DBConfig
 }
 
-// deviceDBMu guards deviceDB, dbhandler, and deviceDBReady so that the
-// handler can be recovered automatically if the underlying connection is
-// closed (e.g. by a test or a graceful shutdown).
-var deviceDBMu sync.Mutex
-var deviceDB *DeviceDB
-var dbhandler *timeseries.DbHandler
-var deviceDBReady bool // true after tables have been created at least once
-
-func CreateDbHandler(config timeseries.DBConfig) *timeseries.DbHandler {
-	dbhandler = timeseries.DBHandler(config)
-	return dbhandler
+// OpenDeviceDB opens a database connection pool of its own and migrates the
+// schema. Close it with Close.
+func OpenDeviceDB(config timeseries.DBConfig) (*DeviceDB, error) {
+	dbh, err := timeseries.Open(config)
+	if err != nil {
+		return nil, err
+	}
+	devDB := &DeviceDB{DbHandler: dbh, conf: config}
+	if err := devDB.migrate(); err != nil {
+		dbh.Close()
+		return nil, fmt.Errorf("migrate database schema: %w", err)
+	}
+	return devDB, nil
 }
 
-// isDBAlive returns false when dbh is nil or its underlying connection is
-// already closed.  It uses Ping() which is cheap (no round-trip for SQLite).
-func isDBAlive(dbh *timeseries.DbHandler) bool {
-	if dbh == nil {
-		return false
-	}
-	return dbh.DB.Ping() == nil
-}
-
-func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
-	logger := log.WithFields(log.Fields{"fnct": "InitializeDB", "name": config.Name})
-	deviceDBMu.Lock()
-	defer deviceDBMu.Unlock()
-
-	// If the current handler is stale (closed), reset state so we re-open.
-	if !isDBAlive(dbhandler) {
-		if dbhandler != nil {
-			logger.Warnf("DBHandler connection is stale, reinitializing")
-		}
-		// Obtain a fresh connection from the timeseries singleton.  If it was
-		// previously closed, the singleton will have been reset to nil, so
-		// DBHandler() will open a new connection.
-		dbhandler = timeseries.DBHandler(config)
-		if deviceDB != nil {
-			deviceDB.DbHandler = dbhandler
-		}
-	} else if deviceDB != nil {
-		logger.Tracef("Reusing existing DBHandler for deviceDB")
-	}
-
-	if !deviceDBReady {
-		logger.Infoln("init")
-		if deviceDB == nil {
-			deviceDB = &DeviceDB{conf: config}
-		}
-		deviceDB.DbHandler = dbhandler
-		if err := deviceDB.migrate(); err != nil {
-			logger.Fatalf("failed to migrate database schema: %v", err)
-		}
-		deviceDBReady = true
-	}
-	if !compareConfigs(deviceDB.conf, config) {
-		logger.Fatalf("Config must not change %+v to %+v", deviceDB.conf, config)
-	}
-	return deviceDB
+// Logs returns the logs table on the same connection pool.
+func (devDB *DeviceDB) Logs() *LoggingDB {
+	return &LoggingDB{DbHandler: devDB.DbHandler, conf: devDB.conf}
 }
 
 // rebind rewrites '?' placeholders to '$1..$n' when the configured backend is
@@ -96,28 +55,6 @@ func (devDB *DeviceDB) rebind(sqlStr string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
-}
-
-func compareConfigs(oldConf, newConf timeseries.DBConfig) bool {
-	if oldConf.Name != newConf.Name {
-		return false
-	}
-	if oldConf.IPOrPath != newConf.IPOrPath {
-		return false
-	}
-	if oldConf.User != newConf.User {
-		return false
-	}
-	if oldConf.Password != newConf.Password {
-		return false
-	}
-	if oldConf.Port != newConf.Port {
-		return false
-	}
-	if oldConf.UsePostgres != newConf.UsePostgres {
-		return false
-	}
-	return true
 }
 
 // RecordDeviceAddress stores the address a device request came from.

@@ -48,7 +48,7 @@ func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	logs, err := GetLoggingDB(s.IoTConfig.DbConfig).GetLogMessagesPage(100, offset, filter)
+	logs, err := s.LoggingDB.GetLogMessagesPage(100, offset, filter)
 	if err != nil {
 		log.WithFields(logFields).Errorf("Failed to get log messages: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve logs"})

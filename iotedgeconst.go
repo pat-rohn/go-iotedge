@@ -11,6 +11,7 @@ type IoTEdge struct {
 	Port      int
 	IoTConfig IoTConfig
 	DeviceDB  *DeviceDB
+	LoggingDB *LoggingDB
 	store     cookie.Store
 	password  string
 	// ingestAuth is set by newRouter from IoTConfig.Security.

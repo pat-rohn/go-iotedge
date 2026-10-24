@@ -36,12 +36,17 @@ type LoggingDB struct {
 	conf timeseries.DBConfig
 }
 
-var onceLoggingDB sync.Once
-var loggingDB *LoggingDB
-var loggingHookOnce sync.Once
+// logTarget is where databaseLogHook stores server log lines. logrus' logger
+// is global, so the hook is too; New points it at its database.
+var logTarget atomic.Pointer[LoggingDB]
+var logHookOnce sync.Once
 
-type databaseLogHook struct {
-	db *LoggingDB
+type databaseLogHook struct{}
+
+// persistServerLogs makes the database log hook write to db.
+func persistServerLogs(db *LoggingDB) {
+	logTarget.Store(db)
+	logHookOnce.Do(func() { log.AddHook(&databaseLogHook{}) })
 }
 
 // logPersistLevel is the lowest log level databaseLogHook stores; set from
@@ -61,7 +66,8 @@ func (h *databaseLogHook) Levels() []log.Level {
 }
 
 func (h *databaseLogHook) Fire(entry *log.Entry) error {
-	if entry.Data["persisted_log"] == true || uint32(entry.Level) > logPersistLevel.Load() {
+	db := logTarget.Load()
+	if db == nil || entry.Data["persisted_log"] == true || uint32(entry.Level) > logPersistLevel.Load() {
 		return nil
 	}
 	device := "server"
@@ -78,37 +84,15 @@ func (h *databaseLogHook) Fire(entry *log.Entry) error {
 		level = Debug
 	}
 	var query string
-	if h.db.conf.UsePostgres {
+	if db.conf.UsePostgres {
 		query = `INSERT INTO logs (device, text, level) VALUES ($1, $2, $3)`
 	} else {
 		query = `INSERT INTO logs (device, text, level) VALUES (?, ?, ?)`
 	}
-	if _, err := h.db.DB.Exec(query, device, entry.Message, int(level)); err != nil {
+	if _, err := db.DB.Exec(query, device, entry.Message, int(level)); err != nil {
 		return fmt.Errorf("persist server log: %w", err)
 	}
 	return nil
-}
-
-// GetLoggingDB returns the singleton LoggingDB, initialising it the first time.
-// The early-return guard is intentionally absent — sync.Once handles concurrent
-// first-time initialisation correctly and avoids a data race on loggingDB.
-func GetLoggingDB(config timeseries.DBConfig) *LoggingDB {
-	logger := log.WithFields(log.Fields{"fnct": "GetLoggingDB", "name": config.Name})
-	onceLoggingDB.Do(func() {
-		logger.Infoln("init")
-		// GetDeviceDB opens the shared handler and migrates the schema,
-		// including the logs table.
-		loggingDB = &LoggingDB{conf: config}
-		loggingDB.DbHandler = GetDeviceDB(config).DbHandler
-		loggingHookOnce.Do(func() {
-			log.AddHook(&databaseLogHook{db: loggingDB})
-		})
-	})
-	// Guard against nil deviceDB before comparing configs (Fix #3).
-	if deviceDB != nil && !compareConfigs(deviceDB.conf, config) {
-		logger.Fatalf("Config must not change %+v to %+v", deviceDB.conf, config)
-	}
-	return loggingDB
 }
 
 func (s *IoTEdge) LogMessage(msg LogMessage) error {
@@ -126,7 +110,7 @@ func (s *IoTEdge) LogMessage(msg LogMessage) error {
 	default:
 		logger.Info(msg.Text)
 	}
-	if err := GetLoggingDB(s.IoTConfig.DbConfig).InsertLogMessage(msg); err != nil {
+	if err := s.LoggingDB.InsertLogMessage(msg); err != nil {
 		logger.Errorf("failed to log message to DB:%v", err)
 		return err
 	}
