@@ -31,6 +31,7 @@ func freePort(t *testing.T) int {
 func testBroker(t *testing.T, sec SecurityConfig, homeAssistant bool) (*IoTEdge, *mqttBroker, int) {
 	t.Helper()
 	iot := regressionIoT()
+	iot.status = newServerStatus()
 	iot.IoTConfig.Security = sec
 	iot.IoTConfig.Monitoring.HomeAssistantDiscovery = homeAssistant
 	port := freePort(t)

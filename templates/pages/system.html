@@ -1,0 +1,66 @@
+{{define "content"}}
+<div class="section-header">
+    <div class="section-title-area">
+        <h1 class="section-title">System</h1>
+        <p class="section-subtitle">Version {{shortHash .Data.Build.Commit}}{{with .Data.Uptime}} · up {{.}}{{end}}</p>
+    </div>
+</div>
+
+<h2 class="subsection-title">Configuration</h2>
+<div class="card">
+    <ul class="finding-list">
+        {{range .Data.Warnings}}
+        <li class="finding finding-{{.Level}}"><span class="finding-label">{{if eq .Level "warning"}}Warning{{else}}Note{{end}}</span> {{.Text}}</li>
+        {{end}}
+    </ul>
+</div>
+
+<div class="system-grid">
+    <section class="card system-card">
+        <h2 class="subsection-title">Server</h2>
+        <dl>
+            <dt>Commit</dt><dd><code title="{{.Data.Build.Commit}}">{{shortHash .Data.Build.Commit}}</code></dd>
+            <dt>Built</dt><dd>{{.Data.Build.Date}}</dd>
+            <dt>Up for</dt><dd>{{or .Data.Uptime "—"}}</dd>
+            <dt>Ingest token</dt><dd>IngestAuth {{.Data.IngestAuth}}</dd>
+        </dl>
+    </section>
+    <section class="card system-card">
+        <h2 class="subsection-title">Database</h2>
+        <dl>
+            <dt>Location</dt><dd>{{.Data.Database}}</dd>
+            <dt>Size</dt><dd>{{or .Data.DatabaseSize "—"}}</dd>
+            <dt>Schema version</dt><dd>{{or .Data.SchemaVersion "—"}}</dd>
+            <dt>Tags</dt><dd>{{or .Data.Tags "0"}}</dd>
+        </dl>
+    </section>
+    <section class="card system-card">
+        <h2 class="subsection-title">MQTT broker</h2>
+        {{with .Data.MQTT}}
+        <dl>
+            <dt>Port</dt><dd>{{.Port}}</dd>
+            <dt>Connected clients</dt><dd id="mqtt-clients">{{.Info.ClientsConnected}}</dd>
+            <dt>Messages received</dt><dd id="mqtt-received">{{.Info.MessagesReceived}}</dd>
+            <dt>Messages sent</dt><dd>{{.Info.MessagesSent}}</dd>
+            <dt>Retained messages</dt><dd>{{.Info.Retained}}</dd>
+        </dl>
+        {{else}}
+        <p class="empty-state">The broker is not running in this process.</p>
+        {{end}}
+    </section>
+    <section class="card system-card">
+        <h2 class="subsection-title">Forwarding</h2>
+        {{with .Data.Forwarding}}
+        <dl>
+            <dt>To</dt><dd>{{.URL}}</dd>
+            <dt>Batches waiting</dt><dd>{{.Pending}}</dd>
+            <dt>Last delivery</dt><dd>{{if .LastDelivered.IsZero}}—{{else}}{{localTime .LastDelivered}}{{end}}</dd>
+            <dt>Last error</dt><dd>{{if .LastError}}{{.LastError}} ({{localTime .LastErrorAt}}){{else}}—{{end}}</dd>
+        </dl>
+        {{else}}
+        {{with .Data.ForwardingConfigured}}<p class="empty-state">Configured to {{.}}, starts with the MQTT broker.</p>
+        {{else}}<p class="empty-state">Off. MQTT readings are stored locally.</p>{{end}}
+        {{end}}
+    </section>
+</div>
+{{end}}

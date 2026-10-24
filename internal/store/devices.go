@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -277,4 +278,39 @@ const levelTrace = slog.Level(-8)
 // SetHealthHistoryRetention sets how long health history is kept.
 func (devDB *DeviceDB) SetHealthHistoryRetention(d time.Duration) {
 	devDB.healthRetention = d
+}
+
+// Size is the database's size on disk in bytes (SQLite file and its WAL,
+// or pg_database_size).
+func (devDB *DeviceDB) Size() (int64, error) {
+	if devDB.conf.UsePostgres {
+		var size int64
+		err := devDB.DB.QueryRow(`SELECT pg_database_size(current_database())`).Scan(&size)
+		return size, err
+	}
+	var size int64
+	for _, suffix := range []string{"", "-wal"} {
+		info, err := os.Stat(devDB.conf.IPOrPath + devDB.conf.Name + suffix)
+		if err == nil {
+			size += info.Size()
+		} else if suffix == "" {
+			return 0, err
+		}
+	}
+	return size, nil
+}
+
+// SchemaVersion is the newest applied schema migration.
+func (devDB *DeviceDB) SchemaVersion() (int, error) {
+	var version int
+	err := devDB.DB.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&version)
+	return version, err
+}
+
+// Location names the database: the SQLite file, or Postgres host and name.
+func (devDB *DeviceDB) Location() string {
+	if devDB.conf.UsePostgres {
+		return fmt.Sprintf("Postgres %s:%d/%s", devDB.conf.IPOrPath, devDB.conf.Port, devDB.conf.Name)
+	}
+	return "SQLite " + devDB.conf.IPOrPath + devDB.conf.Name
 }

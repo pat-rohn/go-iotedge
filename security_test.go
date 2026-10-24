@@ -21,6 +21,7 @@ const testPassword = "unit-test-password"
 func securityRouter(t *testing.T, sec SecurityConfig) (*IoTEdge, http.Handler) {
 	t.Helper()
 	iot := regressionIoT()
+	iot.status = newServerStatus() // this test's broker and forwarder only
 	iot.IoTConfig.Password = testPassword
 	iot.IoTConfig.SessionSecret = "unit-test-session-secret-32-bytes!!"
 	iot.IoTConfig.Security = sec

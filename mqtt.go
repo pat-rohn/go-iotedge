@@ -220,6 +220,8 @@ func remoteIP(addr string) string {
 type mqttBroker struct {
 	server    *mqttserver.Server
 	handler   *TimeseriesHandler
+	port      int
+	status    *serverStatus
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -228,6 +230,9 @@ type mqttBroker struct {
 // Further calls do nothing.
 func (b *mqttBroker) Close() error {
 	b.closeOnce.Do(func() {
+		if b.status != nil {
+			b.status.broker.CompareAndSwap(b, nil)
+		}
 		b.closeErr = b.server.Close()
 		b.handler.stopWorkers()
 	})
@@ -291,7 +296,11 @@ func (s *IoTEdge) startMQTTBroker(port int) (*mqttBroker, error) {
 		}
 	}
 	slog.Info(fmt.Sprintf("MQTT broker listening on port %d", port), logFields...)
-	return &mqttBroker{server: server, handler: handler}, nil
+	broker := &mqttBroker{server: server, handler: handler, port: port, status: s.status}
+	if s.status != nil {
+		s.status.broker.Store(broker)
+	}
+	return broker, nil
 }
 
 // mqttShutdownBudget bounds the final flush when the broker stops.
@@ -317,6 +326,10 @@ func (s *IoTEdge) StartMQTTBroker(ctx context.Context) error {
 	var fwd *forwarder
 	if forwarding := config.forwarding(); forwarding.URL != "" {
 		fwd = newForwarder(s.DeviceDB, forwarding)
+		if s.status != nil {
+			s.status.forwarder.Store(fwd)
+			defer s.status.forwarder.CompareAndSwap(fwd, nil)
+		}
 		slog.Info(fmt.Sprintf("Forwarding MQTT readings to %s", forwarding.URL), logFields...)
 	}
 	ticker := time.NewTicker(interval)

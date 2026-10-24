@@ -77,7 +77,7 @@ type SecurityConfig struct {
 func New(iotConfig IoTConfig) IoTEdge {
 	logFields := []any{"fnct", "New"}
 	slog.Log(context.Background(), LevelTrace, fmt.Sprintf("Config %+v", iotConfig), logFields...)
-	s := IoTEdge{Port: iotConfig.Port, IoTConfig: iotConfig}
+	s := IoTEdge{Port: iotConfig.Port, IoTConfig: iotConfig, status: newServerStatus()}
 	deviceDB, err := OpenDeviceDB(iotConfig.DbConfig)
 	if err != nil {
 		fatal(fmt.Sprintf("failed to open database: %v", err))
@@ -285,6 +285,7 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	router.GET(URIDashboard+"/logs", s.AuthenticationHandler, s.logsPage)
 	router.GET(URIDashboard+"/events", s.AuthenticationHandler, s.overviewEvents)
 	router.GET(URIDashboard+"/measurements", s.AuthenticationHandler, s.measurementsPage)
+	router.GET(URIDashboard+"/system", s.AuthenticationHandler, s.systemPage)
 	router.GET(URIDashboard+"/measurements.csv", s.AuthenticationHandler, s.measurementsCSV)
 	router.GET(URIDashboard+"/devices/:name", s.AuthenticationHandler, s.devicePage)
 	router.PUT(URIDashboard+"/devices/:name", s.AuthenticationHandler, s.csrfProtect, s.updateDeviceSettings)

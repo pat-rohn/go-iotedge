@@ -18,6 +18,9 @@ type IoTEdge struct {
 	// liveInterval is how often the overview stream checks for changes
 	// (defaultLiveInterval when zero).
 	liveInterval time.Duration
+	// status is what the system page reads from the running parts; shared
+	// by copies of the IoTEdge value.
+	status *serverStatus
 }
 
 const (

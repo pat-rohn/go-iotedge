@@ -68,6 +68,28 @@ type forwarder struct {
 
 	mu       sync.Mutex // one delivery round at a time
 	lastWarn time.Time
+
+	statusMu      sync.Mutex
+	lastDelivered time.Time
+	lastError     string
+	lastErrorAt   time.Time
+}
+
+// forwardStatus is what the system page shows about forwarding.
+type forwardStatus struct {
+	URL           string
+	Pending       int
+	LastDelivered time.Time
+	LastError     string
+	LastErrorAt   time.Time
+}
+
+func (f *forwarder) status() forwardStatus {
+	pending, _ := f.pending()
+	f.statusMu.Lock()
+	defer f.statusMu.Unlock()
+	return forwardStatus{URL: f.url, Pending: pending, LastDelivered: f.lastDelivered,
+		LastError: f.lastError, LastErrorAt: f.lastErrorAt}
 }
 
 func newForwarder(db *DeviceDB, cfg ForwardingConfig) *forwarder {
@@ -146,6 +168,9 @@ func (f *forwarder) deliverDue(ctx context.Context) (int, error) {
 				` SET attempts = ?, next_attempt_at = ? WHERE id = ?`), attempts, next, b.id); dbErr != nil {
 				return delivered, dbErr
 			}
+			f.statusMu.Lock()
+			f.lastError, f.lastErrorAt = err.Error(), f.now()
+			f.statusMu.Unlock()
 			f.warn(err)
 			return delivered, err
 		}
@@ -153,6 +178,9 @@ func (f *forwarder) deliverDue(ctx context.Context) (int, error) {
 			return delivered, err
 		}
 		delivered++
+		f.statusMu.Lock()
+		f.lastDelivered = f.now()
+		f.statusMu.Unlock()
 	}
 	return delivered, nil
 }

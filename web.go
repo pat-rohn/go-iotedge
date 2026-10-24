@@ -29,6 +29,7 @@ var dashboardNav = []navPage{
 	{URIDashboard + "/devices", "Devices", `<rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 7V5M12 7V5M15 7V5M9 19v-2M12 19v-2M15 19v-2M7 9H5M7 12H5M7 15H5M19 9h-2M19 12h-2M19 15h-2"/>`},
 	{URIDashboard + "/measurements", "Measurements", `<path d="M4 19h16"/><path d="M5 15l4-5 4 3 6-7"/>`},
 	{URIDashboard + "/logs", "Logs", `<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/>`},
+	{URIDashboard + "/system", "System", `<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>`},
 }
 
 // pageData is what every page template gets; Data is the page's own.
@@ -62,6 +63,12 @@ var templateFuncs = template.FuncMap{
 		return status
 	},
 	"pathEscape": url.PathEscape,
+	"shortHash": func(h string) string {
+		if len(h) > 12 {
+			return h[:12]
+		}
+		return h
+	},
 	// Times are stored in UTC; pages show the server's local time, like the
 	// charts show the browser's.
 	"localTime":   func(t time.Time) string { return t.Local().Format("2006-01-02 15:04:05") },
@@ -112,7 +119,7 @@ var (
 func pageTemplate(name string) *template.Template {
 	pageTemplatesOnce.Do(func() {
 		pageTemplates = map[string]*template.Template{}
-		for _, page := range []string{"overview.html", "devices.html", "logs.html", "device.html", "notfound.html", "measurements.html"} {
+		for _, page := range []string{"overview.html", "devices.html", "logs.html", "device.html", "notfound.html", "measurements.html", "system.html"} {
 			pageTemplates[page] = template.Must(template.New(page).Funcs(templateFuncs).
 				ParseFS(templatesFS, "templates/layout.html", "templates/pages/"+page))
 		}
