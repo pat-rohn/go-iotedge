@@ -3,6 +3,7 @@ package iotedge
 // testmain_test.go — package-level test lifecycle hooks.
 
 import (
+	"fmt"
 	"os"
 	"testing"
 )
@@ -12,6 +13,11 @@ import (
 // files before the process exits.  Without an explicit Close() the OS merely
 // reclaims file handles and SQLite never gets to clean up.
 func TestMain(m *testing.M) {
+	stopPostgres, err := startTestPostgres()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	code := m.Run()
 
 	// dbhandler is the package-level *timeseries.DbHandler set by
@@ -27,5 +33,10 @@ func TestMain(m *testing.M) {
 		}
 	}
 
+	if stopPostgres != nil {
+		if err := stopPostgres(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}
 	os.Exit(code)
 }
