@@ -12,7 +12,7 @@ import (
 
 	"github.com/pat-rohn/go-iotedge/internal/store"
 	"github.com/pat-rohn/timeseries"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 // ForwardingConfig sends the MQTT readings to a central go-iotedge instead of
@@ -185,7 +185,7 @@ func (f *forwarder) warn(err error) {
 	}
 	f.lastWarn = now
 	n, _ := f.pending()
-	log.WithField("fnct", "forwarder").Warnf("forwarding to %s failed, %d batches queued: %v", f.url, n, err)
+	slog.Warn(fmt.Sprintf("forwarding to %s failed, %d batches queued: %v", f.url, n, err), "fnct", "forwarder")
 }
 
 // deliverInBackground starts a delivery round unless one is still running
@@ -197,7 +197,7 @@ func (f *forwarder) deliverInBackground(ctx context.Context) {
 	f.mu.Unlock()
 	go func() {
 		if _, err := f.deliverDue(ctx); err != nil && ctx.Err() == nil {
-			log.WithField("fnct", "forwarder").Debugf("delivery round: %v", err)
+			slog.Debug(fmt.Sprintf("delivery round: %v", err), "fnct", "forwarder")
 		}
 	}()
 }

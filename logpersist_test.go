@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 func countLogs(t *testing.T, iot *IoTEdge, device, text string) int {
@@ -30,14 +31,11 @@ func countLogs(t *testing.T, iot *IoTEdge, device, text string) int {
 
 func TestPersistServerLogsOnlyAtConfiguredLevel(t *testing.T) {
 	iot := regressionIoT()
-	oldLevel := log.GetLevel()
-	log.SetLevel(log.InfoLevel)
-	defer log.SetLevel(oldLevel)
 
 	info := "p1-info-" + uuid.NewString()
 	warn := "p1-warn-" + uuid.NewString()
-	log.Info(info)
-	log.Warn(warn)
+	slog.Info(info)
+	slog.Warn(warn)
 
 	if n := countLogs(t, &iot, "server", info); n != 0 {
 		t.Errorf("info log persisted %d times, want 0", n)
@@ -50,9 +48,6 @@ func TestPersistServerLogsOnlyAtConfiguredLevel(t *testing.T) {
 func TestDeviceLogIsPersistedOnce(t *testing.T) {
 	iot := regressionIoT()
 	router := newTestRouter(&iot)
-	oldLevel := log.GetLevel()
-	log.SetLevel(log.InfoLevel)
-	defer log.SetLevel(oldLevel)
 
 	device := "p1-dev-" + uuid.NewString()
 	for _, level := range []Loglevel{Info, Error} {
@@ -82,9 +77,25 @@ func TestRecordDeviceActivityDoesNotLogAtInfo(t *testing.T) {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		for _, e := range h.entries {
-			if e.Level <= log.InfoLevel {
+			if e.Level >= slog.LevelInfo {
 				t.Errorf("RecordDeviceActivity logged at %s: %q", e.Level, e.Message)
 			}
 		}
 	})
+}
+
+// The timeseries library still logs through logrus; its warnings must reach
+// the logs table like the server's own.
+func TestLogrusWarningsFromLibrariesArePersisted(t *testing.T) {
+	iot := regressionIoT()
+	text := "library-warn-" + uuid.NewString()
+	logrus.WithField("package", "dbhandler").Warn(text)
+	if n := countLogs(t, &iot, "server", text); n != 1 {
+		t.Errorf("logrus warning persisted %d times, want 1", n)
+	}
+	debug := "library-debug-" + uuid.NewString()
+	logrus.Debug(debug)
+	if n := countLogs(t, &iot, "server", debug); n != 0 {
+		t.Errorf("logrus debug persisted %d times, want 0", n)
+	}
 }

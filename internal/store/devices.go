@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/pat-rohn/timeseries"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 // ErrDeviceNotFound is returned by GetDevice when no device matches the given name.
@@ -68,8 +68,8 @@ func (devDB *DeviceDB) RecordDeviceAddress(name, address string, now time.Time) 
 }
 
 func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
-	logFields := log.Fields{"fnct": "GetOrCreateDevice", "device": descr.Name}
-	log.WithFields(logFields).Debugln("GetOrCreateDevice")
+	logFields := []any{"fnct", "GetOrCreateDevice", "device", descr.Name}
+	slog.Debug("GetOrCreateDevice", logFields...)
 	startTime := time.Now()
 
 	var insertSQL string
@@ -79,7 +79,7 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 		insertSQL = "INSERT OR IGNORE INTO devices (name, description) VALUES (?, ?)"
 	}
 	if err := devDB.Execute(insertSQL, descr.Name, descr.Description); err != nil {
-		log.WithFields(logFields).Errorf("Upsert device failed: %v", err)
+		slog.Error(fmt.Sprintf("Upsert device failed: %v", err), logFields...)
 		return Device{}, err
 	}
 	// Device startup reports the current IP address as its description.
@@ -87,7 +87,7 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	if descr.Description != "" {
 		updateSQL := devDB.Rebind("UPDATE devices SET description = ? WHERE name = ?")
 		if err := devDB.Execute(updateSQL, descr.Description, descr.Name); err != nil {
-			log.WithFields(logFields).Warnf("failed to update description: %v", err)
+			slog.Warn(fmt.Sprintf("failed to update description: %v", err), logFields...)
 		}
 	}
 
@@ -105,13 +105,13 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	if err = rows.Err(); err != nil {
 		return Device{}, err
 	}
-	log.WithFields(logFields).Debugf("Device has ID %d (took %v)", dev.ID, time.Since(startTime))
+	slog.Debug(fmt.Sprintf("Device has ID %d (took %v)", dev.ID, time.Since(startTime)), logFields...)
 	return dev, nil
 }
 
 func (devDB *DeviceDB) GetDevice(name string) (Device, error) {
-	logFields := log.Fields{"fnct": "GetDevice", "name": name}
-	log.WithFields(logFields).Infof("Find device with name %v", name)
+	logFields := []any{"fnct", "GetDevice", "name", name}
+	slog.Info(fmt.Sprintf("Find device with name %v", name), logFields...)
 	rows, err := devDB.ExecuteQuery(devDB.Rebind("SELECT id, name, description, intervall, buffer FROM devices WHERE name = ?"), name)
 	if err != nil {
 		return Device{}, err
@@ -124,20 +124,20 @@ func (devDB *DeviceDB) GetDevice(name string) (Device, error) {
 		if err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer); err != nil {
 			return Device{}, fmt.Errorf("failed to scan device: %w", err)
 		}
-		log.WithFields(logFields).Infof("Device found %+v", dev)
+		slog.Info(fmt.Sprintf("Device found %+v", dev), logFields...)
 	}
 	if err = rows.Err(); err != nil {
 		return Device{}, err
 	}
 	if !found {
-		log.WithFields(logFields).Infof("Device '%s' not found", name)
+		slog.Info(fmt.Sprintf("Device '%s' not found", name), logFields...)
 		return Device{}, ErrDeviceNotFound
 	}
 	return dev, nil
 }
 
 func (devDB *DeviceDB) GetDevices() ([]Device, error) {
-	logFields := log.Fields{"fnct": "GetDevices"}
+	logFields := []any{"fnct", "GetDevices"}
 	rows, err := devDB.ExecuteQuery("SELECT id, name, description, intervall, buffer FROM devices")
 	if err != nil {
 		return []Device{}, err
@@ -148,7 +148,7 @@ func (devDB *DeviceDB) GetDevices() ([]Device, error) {
 		var dev Device
 		err := rows.Scan(&dev.ID, &dev.Name, &dev.Description, &dev.Interval, &dev.Buffer)
 		if err != nil {
-			log.WithFields(logFields).Errorf("Failed to scan device %v", err)
+			slog.Error(fmt.Sprintf("Failed to scan device %v", err), logFields...)
 			continue
 		}
 		devices = append(devices, dev)
@@ -160,8 +160,8 @@ func (devDB *DeviceDB) GetDevices() ([]Device, error) {
 }
 
 func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
-	logFields := log.Fields{"fnct": "GetDevicesConfigs"}
-	log.WithFields(logFields).Infoln("Find all devices with sensors via JOIN")
+	logFields := []any{"fnct", "GetDevicesConfigs"}
+	slog.Info("Find all devices with sensors via JOIN", logFields...)
 	rows, err := devDB.ExecuteQuery(`
 		SELECT d.id, d.name, d.description, d.intervall, d.buffer,
 		       d.address, d.address_seen_at,
@@ -193,7 +193,7 @@ func (devDB *DeviceDB) GetDevicesConfigs() ([]DeviceConfig, error) {
 		)
 		if err := rows.Scan(&dID, &dName, &dDesc, &dInterval, &dBuffer, &dAddress, &dSeenAt,
 			&sID, &sDeviceID, &sName, &sOffset); err != nil {
-			log.WithFields(logFields).Errorf("Failed to scan row: %v", err)
+			slog.Error(fmt.Sprintf("Failed to scan row: %v", err), logFields...)
 			return nil, err
 		}
 		if _, exists := configMap[dID]; !exists {
@@ -265,3 +265,6 @@ func (devDB *DeviceDB) InsertSensor(sensor Sensor) error {
 	}
 	return err
 }
+
+// levelTrace is below slog.LevelDebug, for per-query detail.
+const levelTrace = slog.Level(-8)

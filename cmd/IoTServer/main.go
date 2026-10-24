@@ -9,8 +9,8 @@ import (
 	"syscall"
 
 	iotedge "github.com/pat-rohn/go-iotedge"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"log/slog"
 )
 
 var loglevel string
@@ -19,13 +19,13 @@ var workDir string
 func initGlobalFlags() {
 	switch loglevel {
 	case "--trace", "t":
-		log.SetLevel(log.TraceLevel)
+		iotedge.SetLogLevel(iotedge.LevelTrace)
 	case "--info", "i":
-		log.SetLevel(log.InfoLevel)
+		iotedge.SetLogLevel(slog.LevelInfo)
 	case "--warn", "w":
-		log.SetLevel(log.WarnLevel)
+		iotedge.SetLogLevel(slog.LevelWarn)
 	case "--error", "e":
-		log.SetLevel(log.ErrorLevel)
+		iotedge.SetLogLevel(slog.LevelError)
 	default:
 		fmt.Printf("Invalid log level '%s'\n", loglevel)
 	}
@@ -48,9 +48,9 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if workDir != "." {
 				if err := os.Chdir(workDir); err != nil {
-					log.Fatalf("Failed to change working directory: %v", err)
+					return fmt.Errorf("change working directory: %w", err)
 				}
-				log.Infof("Changed working directory to: %s", workDir)
+				slog.Info(fmt.Sprintf("Changed working directory to: %s", workDir))
 			}
 			if err := startServer(); err != nil {
 				return err
@@ -66,11 +66,11 @@ func main() {
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			conf := iotedge.GetConfig()
-			logLevel, err := log.ParseLevel(conf.Verbosity)
+			logLevel, err := iotedge.ParseLogLevel(conf.Verbosity)
 			if err != nil {
-				log.Error(err)
+				slog.Error(fmt.Sprint(err))
 			} else {
-				log.SetLevel(logLevel)
+				iotedge.SetLogLevel(logLevel)
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -167,7 +167,7 @@ func CreateTimeseriesTable() error {
 	iotConfig := iotedge.New(iotedge.GetConfig())
 	defer iotConfig.Close()
 	if err := iotConfig.DeviceDB.CreateTimeseriesTable(iotConfig.IoTConfig.TimeseriesTable); err != nil {
-		log.Errorf("failed to create DB: %v", err)
+		slog.Error(fmt.Sprintf("failed to create DB: %v", err))
 		return err
 	}
 	return nil
@@ -175,11 +175,11 @@ func CreateTimeseriesTable() error {
 
 func startServer() error {
 	config := iotedge.GetConfig()
-	logLevel, err := log.ParseLevel(config.Verbosity)
+	logLevel, err := iotedge.ParseLogLevel(config.Verbosity)
 	if err != nil {
-		log.Error(err)
+		slog.Error(fmt.Sprint(err))
 	} else {
-		log.SetLevel(logLevel)
+		iotedge.SetLogLevel(logLevel)
 	}
 	// SIGINT/SIGTERM stop both servers; buffered MQTT readings are stored
 	// before the database is closed.
@@ -191,7 +191,7 @@ func startServer() error {
 	go func() {
 		defer close(mqttDone)
 		if err := iot.StartMQTTBroker(ctx); err != nil {
-			log.Errorf("MQTT broker failed: %v", err)
+			slog.Error(fmt.Sprintf("MQTT broker failed: %v", err))
 		}
 	}()
 	err = iot.StartSensorServer(ctx)

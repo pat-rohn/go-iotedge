@@ -15,8 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pat-rohn/go-iotedge/internal/store"
 	"github.com/pat-rohn/timeseries"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"log/slog"
 )
 
 const (
@@ -74,36 +74,36 @@ type SecurityConfig struct {
 }
 
 func New(iotConfig IoTConfig) IoTEdge {
-	logFields := log.Fields{"fnct": "New"}
-	log.WithFields(logFields).Tracef("Config %+v", iotConfig)
+	logFields := []any{"fnct", "New"}
+	slog.Log(context.Background(), LevelTrace, fmt.Sprintf("Config %+v", iotConfig), logFields...)
 	s := IoTEdge{Port: iotConfig.Port, IoTConfig: iotConfig}
 	deviceDB, err := OpenDeviceDB(iotConfig.DbConfig)
 	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
+		fatal(fmt.Sprintf("failed to open database: %v", err))
 	}
 	s.DeviceDB = deviceDB
 	s.LoggingDB = deviceDB.Logs()
 	if err := s.DeviceDB.CreateTimeseriesTable(iotConfig.TimeseriesTable); err != nil {
-		log.Fatalf("failed to create table: %v", err)
+		fatal(fmt.Sprintf("failed to create table: %v", err))
 	}
 	s.IoTConfig.Monitoring = s.IoTConfig.Monitoring.Normalized()
 	if err := s.IoTConfig.Monitoring.Validate(); err != nil {
-		log.Fatalf("invalid monitoring configuration: %v", err)
+		fatal(fmt.Sprintf("invalid monitoring configuration: %v", err))
 	}
 	if err := s.initIngestAuth(); err != nil {
-		log.Fatalf("invalid security configuration: %v", err)
+		fatal(fmt.Sprintf("invalid security configuration: %v", err))
 	}
 	if s.IoTConfig.MQTTRedirectAddress != "" && s.IoTConfig.Forwarding.URL == "" {
-		log.Warn("MQTTRedirectAddress is deprecated; set Forwarding.URL (and Forwarding.Token) instead")
+		slog.Warn("MQTTRedirectAddress is deprecated; set Forwarding.URL (and Forwarding.Token) instead")
 	}
 	if s.IoTConfig.LogPersistLevel == "" {
 		s.IoTConfig.LogPersistLevel = "warning"
 	}
-	persistLevel, err := log.ParseLevel(s.IoTConfig.LogPersistLevel)
+	level, err := ParseLogLevel(s.IoTConfig.LogPersistLevel)
 	if err != nil {
-		log.Fatalf("invalid LogPersistLevel %q: %v", s.IoTConfig.LogPersistLevel, err)
+		fatal(fmt.Sprintf("invalid LogPersistLevel %q: %v", s.IoTConfig.LogPersistLevel, err))
 	}
-	setLogPersistLevel(persistLevel)
+	setLogPersistLevel(level)
 	persistServerLogs(s.LoggingDB)
 	return s
 }
@@ -114,7 +114,7 @@ func (s *IoTEdge) Close() error {
 }
 
 func GetConfig() IoTConfig {
-	logFields := log.Fields{"fnct": "GetConfig"}
+	logFields := []any{"fnct", "GetConfig"}
 	viper.SetDefault("Verbosity", "info")
 	viper.SetDefault("Port", 3004)
 	viper.SetDefault("MQTTPort", 1883)
@@ -145,33 +145,33 @@ func GetConfig() IoTConfig {
 	viper.SetConfigType("json")
 	dirname, err := os.UserHomeDir()
 	if err != nil {
-		log.Error(err)
+		slog.Error(fmt.Sprint(err))
 		dirname = "."
 	}
 	pathToConfig := dirname + "/.iotserver"
 	viper.AddConfigPath(pathToConfig)
 	viper.AddConfigPath(".")
-	log.WithFields(logFields).Infoln("Read Config")
+	slog.Info("Read Config", logFields...)
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			log.Warnf("no config file found: %v", err)
+			slog.Warn(fmt.Sprintf("no config file found: %v", err))
 			if err := os.MkdirAll(pathToConfig, 0755); err != nil {
-				log.Fatal(fmt.Sprintf("Creating config folder failed: %v", err))
+				fatal(fmt.Sprint(fmt.Sprintf("Creating config folder failed: %v", err)))
 			}
 			err = viper.SafeWriteConfig()
 			if err != nil {
-				log.Fatal(fmt.Sprintf("Storing default config failed: %v", err))
+				fatal(fmt.Sprint(fmt.Sprintf("Storing default config failed: %v", err)))
 			}
 		} else {
-			log.Fatal(fmt.Sprintf("Loading config failed: %v", err))
+			fatal(fmt.Sprint(fmt.Sprintf("Loading config failed: %v", err)))
 		}
 	} else {
-		log.WithFields(logFields).Infof("Using config file: %s", viper.ConfigFileUsed())
+		slog.Info(fmt.Sprintf("Using config file: %s", viper.ConfigFileUsed()), logFields...)
 	}
 	var iotConfig IoTConfig
 	err = viper.Unmarshal(&iotConfig)
 	if err != nil {
-		log.Fatalf("fatal error config file: %v ", err)
+		fatal(fmt.Sprintf("fatal error config file: %v ", err))
 	}
 	return iotConfig
 }
@@ -199,7 +199,7 @@ func checkCredentials(cfg IoTConfig) error {
 		return fmt.Errorf("refusing to start (Security.RequireCredentials): %s", strings.Join(problems, "; "))
 	}
 	for _, p := range problems {
-		log.Warnf("%s — set a unique value in config", p)
+		slog.Warn(fmt.Sprintf("%s — set a unique value in config", p))
 	}
 	return nil
 }
@@ -289,7 +289,7 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 // StartSensorServer serves HTTP on s.Port until ctx is cancelled, then shuts
 // down gracefully (up to 15 s for running requests).
 func (s *IoTEdge) StartSensorServer(ctx context.Context) error {
-	logFields := log.Fields{"fnct": "startHTTPListener"}
+	logFields := []any{"fnct", "startHTTPListener"}
 	router, err := s.newRouter()
 	if err != nil {
 		return err
@@ -310,12 +310,12 @@ func (s *IoTEdge) StartSensorServer(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		log.WithFields(logFields).Info("Shutting down server gracefully...")
+		slog.Info("Shutting down server gracefully...", logFields...)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return server.Shutdown(shutdownCtx)
 	case err := <-errChan:
-		log.WithFields(logFields).Errorf("Listen and serve failed: %v.", err)
+		slog.Error(fmt.Sprintf("Listen and serve failed: %v.", err), logFields...)
 		return err
 	}
 }

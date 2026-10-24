@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 const testIngestToken = "unit-test-ingest-token"
@@ -97,7 +97,7 @@ func TestIngestAuthWarnAcceptsAndReportsClientOnce(t *testing.T) {
 		defer h.mu.Unlock()
 		warnings := 0
 		for _, e := range h.entries {
-			if e.Level == log.WarnLevel && strings.Contains(e.Message, "192.0.2.3") {
+			if e.Level == slog.LevelWarn && strings.Contains(e.Message, "192.0.2.3") {
 				warnings++
 			}
 			if strings.Contains(e.Message, "192.0.2.4") {

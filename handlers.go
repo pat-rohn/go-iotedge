@@ -1,6 +1,7 @@
 package iotedge
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/pat-rohn/timeseries"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 type LoginRequest struct {
@@ -42,7 +43,7 @@ func (s *IoTEdge) VersionHandler(c *gin.Context) {
 }
 
 func (s *IoTEdge) DashboardHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "DashboardHandler"}
+	logFields := []any{"fnct", "DashboardHandler"}
 	offset, filter, err := parseLogRequest(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -50,19 +51,19 @@ func (s *IoTEdge) DashboardHandler(c *gin.Context) {
 	}
 	logs, err := s.LoggingDB.GetLogMessagesPage(100, offset, filter)
 	if err != nil {
-		log.WithFields(logFields).Errorf("Failed to get log messages: %v", err)
+		slog.Error(fmt.Sprintf("Failed to get log messages: %v", err), logFields...)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve logs"})
 		return
 	}
 	devices, err := s.DeviceDB.GetDevicesConfigs()
 	if err != nil {
-		log.WithFields(logFields).Errorf("Failed to get devices: %v", err)
+		slog.Error(fmt.Sprintf("Failed to get devices: %v", err), logFields...)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve devices"})
 		return
 	}
 	monitoring, err := s.DeviceDB.GetMonitoringSummary(s.IoTConfig.Monitoring, time.Now())
 	if err != nil {
-		log.WithFields(logFields).Errorf("Failed to get monitoring summary: %v", err)
+		slog.Error(fmt.Sprintf("Failed to get monitoring summary: %v", err), logFields...)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve monitoring summary"})
 		return
 	}
@@ -146,7 +147,7 @@ func (s *IoTEdge) MonitoringHealthHandler(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		log.WithError(err).Error("recording device health failed")
+		slog.Error("recording device health failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record device health"})
 		return
 	}
@@ -155,7 +156,7 @@ func (s *IoTEdge) MonitoringHealthHandler(c *gin.Context) {
 }
 
 func (w *IoTEdge) performLogin(c *gin.Context) {
-	logFields := log.Fields{"fnct": "LoginHandler"}
+	logFields := []any{"fnct", "LoginHandler"}
 	var loginReq LoginRequest
 	if err := c.BindJSON(&loginReq); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
@@ -165,7 +166,7 @@ func (w *IoTEdge) performLogin(c *gin.Context) {
 		session := sessions.Default(c)
 		session.Set("user", "any")
 		if err := session.Save(); err != nil {
-			log.WithFields(logFields).Errorf("Failed to save session: %v", err)
+			slog.Error(fmt.Sprintf("Failed to save session: %v", err), logFields...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to establish session"})
 			return
 		}
@@ -173,7 +174,7 @@ func (w *IoTEdge) performLogin(c *gin.Context) {
 	} else {
 		c.String(http.StatusUnauthorized, "Incorrect credentials")
 	}
-	log.WithFields(logFields).Info("login attempt")
+	slog.Info("login attempt", logFields...)
 }
 
 func (s *IoTEdge) AuthenticationHandler(c *gin.Context) {
@@ -204,7 +205,7 @@ func (s *IoTEdge) LogoutHandler(c *gin.Context) {
 	session.Clear()
 	session.Options(sessions.Options{Path: "/", MaxAge: -1, HttpOnly: true})
 	if err := session.Save(); err != nil {
-		log.WithField("fnct", "LogoutHandler").Errorf("Failed to clear session: %v", err)
+		slog.Error(fmt.Sprintf("Failed to clear session: %v", err), "fnct", "LogoutHandler")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear session"})
 		return
 	}
@@ -212,7 +213,7 @@ func (s *IoTEdge) LogoutHandler(c *gin.Context) {
 }
 
 func (s *IoTEdge) SaveTimeseriesHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "SaveTimeseries"}
+	logFields := []any{"fnct", "SaveTimeseries"}
 	var data []timeseries.TimeseriesImportStruct
 	if err := c.BindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -220,7 +221,7 @@ func (s *IoTEdge) SaveTimeseriesHandler(c *gin.Context) {
 	}
 	for _, ts := range data {
 		if err := s.DeviceDB.InsertTimeseries(ts, true, s.IoTConfig.TimeseriesTable); err != nil {
-			log.WithFields(logFields).Errorf("Failed to save timeseries: %+v ", err.Error())
+			slog.Error(fmt.Sprintf("Failed to save timeseries: %+v ", err.Error()), logFields...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save timeseries: %v", err)})
 			return
 		}
@@ -229,7 +230,7 @@ func (s *IoTEdge) SaveTimeseriesHandler(c *gin.Context) {
 }
 
 func (s *IoTEdge) UploadDataHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "UploadDataHandler"}
+	logFields := []any{"fnct", "UploadDataHandler"}
 	var data []timeseries.TimeseriesImportStruct
 	if err := c.BindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
@@ -237,7 +238,7 @@ func (s *IoTEdge) UploadDataHandler(c *gin.Context) {
 	}
 	for _, val := range data {
 		if err := s.DeviceDB.InsertTimeseries(val, true, s.IoTConfig.TimeseriesTable); err != nil {
-			log.WithFields(logFields).Errorf("Failed to insert: %v", err)
+			slog.Error(fmt.Sprintf("Failed to insert: %v", err), logFields...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to insert values: %v", err)})
 			return
 		}
@@ -246,7 +247,7 @@ func (s *IoTEdge) UploadDataHandler(c *gin.Context) {
 }
 
 func (s *IoTEdge) InitDeviceHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "InitDevice"}
+	logFields := []any{"fnct", "InitDevice"}
 	var deviceReq struct {
 		DeviceDesc DeviceDesc `json:"Device"`
 	}
@@ -256,7 +257,7 @@ func (s *IoTEdge) InitDeviceHandler(c *gin.Context) {
 	}
 	dev, err := s.Init(deviceReq.DeviceDesc)
 	if err != nil {
-		log.WithFields(logFields).Warnf("init device %s failed: %v", deviceReq.DeviceDesc.Name, err)
+		slog.Warn(fmt.Sprintf("init device %s failed: %v", deviceReq.DeviceDesc.Name, err), logFields...)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("init device %s failed: %v", deviceReq.DeviceDesc.Name, err)})
 		return
 	}
@@ -271,7 +272,7 @@ func (s *IoTEdge) recordDeviceAddress(c *gin.Context, device string, now time.Ti
 		return
 	}
 	if err := s.DeviceDB.RecordDeviceAddress(device, c.ClientIP(), now); err != nil {
-		log.WithFields(log.Fields{"fnct": "recordDeviceAddress", "device": device}).Warnf("failed to record address: %v", err)
+		slog.Warn(fmt.Sprintf("failed to record address: %v", err), "fnct", "recordDeviceAddress", "device", device)
 	}
 }
 
@@ -286,7 +287,7 @@ func (s *IoTEdge) ConfigureDeviceHandler(c *gin.Context) {
 
 // configureDevice sets interval and buffer and answers with the device.
 func (s *IoTEdge) configureDevice(c *gin.Context, p ConfigureDeviceReq) {
-	log.WithField("fnct", "configureDevice").Infof("Value: %+v", p)
+	slog.Info(fmt.Sprintf("Value: %+v", p), "fnct", "configureDevice")
 	dev, err := s.DeviceDB.GetDevice(p.Name)
 	if err != nil {
 		if errors.Is(err, ErrDeviceNotFound) {
@@ -316,7 +317,7 @@ func (s *IoTEdge) ConfSensorHandler(c *gin.Context) {
 
 // configureSensor sets a sensor's offset and answers with its device.
 func (s *IoTEdge) configureSensor(c *gin.Context, p ConfigureSensorReq) {
-	log.WithField("fnct", "configureSensor").Infof("Value: %+v", p)
+	slog.Info(fmt.Sprintf("Value: %+v", p), "fnct", "configureSensor")
 	dev, err := s.DeviceDB.GetDevice(p.Name)
 	if err != nil {
 		if errors.Is(err, ErrDeviceNotFound) {
@@ -352,7 +353,7 @@ func (s *IoTEdge) configureSensor(c *gin.Context, p ConfigureSensorReq) {
 }
 
 func (s *IoTEdge) UpdateSensorHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "UpdateSensorHandler"}
+	logFields := []any{"fnct", "UpdateSensorHandler"}
 	var p sensorValues
 	if err := c.BindJSON(&p); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
@@ -366,7 +367,7 @@ func (s *IoTEdge) UpdateSensorHandler(c *gin.Context) {
 			Comments:   p.Tags,
 		}
 		if err := s.DeviceDB.InsertTimeseries(tsVal, true, s.IoTConfig.TimeseriesTable); err != nil {
-			log.WithFields(logFields).Errorf("Failed to insert: %v", err)
+			slog.Error(fmt.Sprintf("Failed to insert: %v", err), logFields...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to insert values: %v", err)})
 			return
 		}
@@ -375,18 +376,18 @@ func (s *IoTEdge) UpdateSensorHandler(c *gin.Context) {
 }
 
 func (s *IoTEdge) LogHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "Log"}
+	logFields := []any{"fnct", "Log"}
 	var logMsg LogMessage
 	if err := c.BindJSON(&logMsg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
 		return
 	}
-	log.WithFields(logFields).Infof("Value: %+v", logMsg)
+	slog.Info(fmt.Sprintf("Value: %+v", logMsg), logFields...)
 	// Auto-register the device so that logging alone is enough to create a
 	// devices-table entry (devices that only call /api/log never hit /init-device).
 	if logMsg.Device != "" {
 		if _, err := s.DeviceDB.GetOrCreateDevice(DeviceDesc{Name: logMsg.Device}); err != nil {
-			log.WithFields(logFields).Warnf("auto-register device %q failed: %v", logMsg.Device, err)
+			slog.Warn(fmt.Sprintf("auto-register device %q failed: %v", logMsg.Device, err), logFields...)
 		} else {
 			s.recordDeviceAddress(c, logMsg.Device, time.Now())
 		}
@@ -404,7 +405,7 @@ func (s *IoTEdge) LogHandler(c *gin.Context) {
 // http://localhost and https://localhost.
 func (s *IoTEdge) SetGinHeaders(c *gin.Context) {
 	origin := c.GetHeader("Origin")
-	log.Tracef("origin from header: %+s", origin)
+	slog.Log(context.Background(), LevelTrace, fmt.Sprintf("origin from header: %+s", origin))
 	allowed := s.IoTConfig.AllowedOrigins
 	if len(allowed) == 0 {
 		allowed = []string{"http://localhost", "https://localhost"}

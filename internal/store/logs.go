@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/pat-rohn/timeseries"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 type Loglevel int
@@ -38,7 +38,7 @@ type LoggingDB struct {
 func (l *LoggingDB) Postgres() bool { return l.conf.UsePostgres }
 
 func (l *LoggingDB) InsertLogMessage(msg LogMessage) error {
-	logger := log.WithFields(log.Fields{"fnct": "InsertLogMessage", "device": msg.Device})
+	logger := slog.With("fnct", "InsertLogMessage", "device", msg.Device)
 	var sqlStr string
 	if l.conf.UsePostgres {
 		sqlStr = `INSERT INTO logs (device, text, level) VALUES ($1, $2, $3)`
@@ -46,7 +46,7 @@ func (l *LoggingDB) InsertLogMessage(msg LogMessage) error {
 		sqlStr = `INSERT INTO logs (device, text, level) VALUES (?, ?, ?)`
 	}
 	if err := l.Execute(sqlStr, msg.Device, msg.Text, int(msg.Level)); err != nil {
-		logger.Errorf("failed to insert log message:%v", err)
+		logger.Error(fmt.Sprintf("failed to insert log message:%v", err))
 		return err
 	}
 	return nil
@@ -57,7 +57,7 @@ func (l *LoggingDB) GetLogMessages(limit int) ([]LogMessage, error) {
 }
 
 func (l *LoggingDB) GetLogMessagesPage(limit, offset int, filter LogFilter) ([]LogMessage, error) {
-	logger := log.WithFields(log.Fields{"fnct": "GetLogMessages", "limit": limit})
+	logger := slog.With("fnct", "GetLogMessages", "limit", limit)
 	if limit <= 0 || limit > 100 {
 		return nil, fmt.Errorf("limit must be between 1 and 100")
 	}
@@ -126,7 +126,7 @@ func (l *LoggingDB) GetLogMessagesPage(limit, offset int, filter LogFilter) ([]L
 			}
 		}
 		if parseErr != nil {
-			logger.Errorf("failed to parse timestamp %q: %v", timestamp, parseErr)
+			logger.Error(fmt.Sprintf("failed to parse timestamp %q: %v", timestamp, parseErr))
 			return nil, parseErr
 		}
 		messages = append(messages, LogMessage{Timestamp: t, Device: device, Text: text, Level: Loglevel(level)})

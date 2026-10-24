@@ -15,7 +15,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/uuid"
 	"github.com/pat-rohn/timeseries"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 
 	"testing"
 )
@@ -26,7 +26,6 @@ type DummyDevice struct {
 }
 
 func TestAutomated(t *testing.T) {
-	log.SetLevel(log.ErrorLevel)
 	startTime := time.Now()
 	defer func() {
 		fmt.Printf("Finished after %s\n", time.Since(startTime).String())
@@ -41,7 +40,7 @@ func testMain(t *testing.T) {
 	iot := regressionIoT()
 	iot.Port = freePort(t)
 	if err := iot.DeviceDB.CreateTimeseriesTable("measurements"); err != nil {
-		log.Fatalf("failed to create table: %v", err)
+		t.Fatalf("failed to create table: %v", err)
 	}
 	stop := startTestServer(t, &iot)
 	name := "Dummy" + uuid.NewString()
@@ -89,7 +88,7 @@ func testDBInit(t *testing.T) {
 			Description: fmt.Sprintf("%s1.0;DummyTemp", name),
 			Sensors:     []string{fmt.Sprintf("%sTemperature", name)},
 		}
-		log.Warnf("Init device %s", name)
+		slog.Warn(fmt.Sprintf("Init device %s", name))
 		if _, err := iot.Init(dummy); err != nil {
 			t.Errorf("Init device %s: %v", name, err)
 		}
@@ -120,10 +119,10 @@ func testInitDevices(t *testing.T) {
 					Sensors:     []string{fmt.Sprintf("%sTemperature", name)},
 				},
 			}
-			log.Warnf("Init device %s", name)
+			slog.Warn(fmt.Sprintf("Init device %s", name))
 			dummy.init(t)
 
-			log.Warnf("Send Data %s", name)
+			slog.Warn(fmt.Sprintf("Send Data %s", name))
 			dummy.sendSensorData(t)
 			fmt.Printf("--> %s\n", dummy.DeviceDesc.Name)
 
@@ -156,7 +155,7 @@ func (d *DummyDevice) init(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	log.Infof("%+v", req)
+	slog.Info(fmt.Sprintf("%+v", req))
 	endTime := time.Now().Add(time.Second * 60)
 	for time.Now().Before(endTime) {
 		client := http.Client{
@@ -165,7 +164,7 @@ func (d *DummyDevice) init(t *testing.T) {
 		resp, err := client.Post(d.Url+URIInitDevice, "application/json",
 			bytes.NewBuffer(json_data))
 		if err != nil {
-			log.Warnf("Failed to create device %s: %v", d.DeviceDesc.Name, err)
+			slog.Warn(fmt.Sprintf("Failed to create device %s: %v", d.DeviceDesc.Name, err))
 			time.Sleep(time.Second * 2)
 			continue
 		}
@@ -217,7 +216,7 @@ func (d *DummyDevice) sendData(t *testing.T, data *[]timeseries.TimeseriesImport
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Errorf("Failed with status: %s", resp.Status)
+		slog.Error(fmt.Sprintf("Failed with status: %s", resp.Status))
 		resp.Body.Close()
 		time.Sleep(time.Until(nextTryTime))
 		d.sendData(t, data)
@@ -276,7 +275,6 @@ func (d *DummyDevice) configureSensor(t *testing.T, configureSensorReq Configure
 // TestMQTT is a load test: 1000 clients publish every 100 ms for
 // loadTestDuration.
 func TestMQTT(t *testing.T) {
-	log.SetLevel(log.WarnLevel)
 	_, broker, port := testBroker(t, SecurityConfig{}, false)
 	var wg sync.WaitGroup
 	for i := range 1000 {
@@ -302,12 +300,12 @@ func TestMQTT(t *testing.T) {
 type TestHandler struct{}
 
 func (h *TestHandler) handleConnected(client mqtt.Client) {
-	log.Infoln("TestHandler Connected")
+	slog.Info("TestHandler Connected")
 
 }
 
 func (h *TestHandler) handleConnectionLost(client mqtt.Client, err error) {
-	log.Error("TestHandler handleConnectionLost")
+	slog.Error("TestHandler handleConnectionLost")
 }
 
 func (h *TestHandler) handleMessage(client mqtt.Client, msg mqtt.Message) {
@@ -316,7 +314,7 @@ func (h *TestHandler) handleMessage(client mqtt.Client, msg mqtt.Message) {
 }
 
 func pubMQTTPaho(port, id int) {
-	log.Infof("<-- %d ", id)
+	slog.Info(fmt.Sprintf("<-- %d ", id))
 	h := TestHandler{}
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", "localhost", port))
@@ -329,7 +327,7 @@ func pubMQTTPaho(port, id int) {
 	opts.OnConnectionLost = h.handleConnectionLost
 	sensorsClient := mqtt.NewClient(opts)
 	if token := sensorsClient.Connect(); token.Wait() && token.Error() != nil {
-		log.Fatal(token.Error())
+		fatal(fmt.Sprint(token.Error()))
 	}
 
 	endTime := time.Now().Add(loadTestDuration())
@@ -342,7 +340,7 @@ func pubMQTTPaho(port, id int) {
 
 		nextUploadTime = time.Now().Add(time.Millisecond * 100)
 	}
-	log.Infof("Disconnecting %d\n", id)
+	slog.Info(fmt.Sprintf("Disconnecting %d\n", id))
 	sensorsClient.Disconnect(250)
 }
 

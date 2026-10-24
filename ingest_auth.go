@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 // Security.IngestAuth modes for the shared ingest token.
@@ -125,9 +125,8 @@ func (a *ingestAuth) report(ip, path string, now time.Time) {
 	}
 	a.mu.Unlock()
 	if warn {
-		log.WithField("fnct", "ingestAuth").Warnf(
-			"device data from %s (%s) without a valid ingest token; accepted because Security.IngestAuth is %q",
-			ip, path, IngestAuthWarn)
+		slog.Warn(fmt.Sprintf("device data from %s (%s) without a valid ingest token; accepted because Security.IngestAuth is %q",
+			ip, path, IngestAuthWarn), "fnct", "ingestAuth")
 	}
 }
 

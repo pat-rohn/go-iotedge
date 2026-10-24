@@ -4,13 +4,13 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 	_ "modernc.org/sqlite"
 )
 
 func (e *IoTEdge) Init(deviceDesc DeviceDesc) (Device, error) {
-	logFields := log.Fields{"fnct": "Init", "Name": deviceDesc.Name, "Desc": deviceDesc.Description}
-	log.WithFields(logFields).Infof("Init %s.", deviceDesc.Name)
+	logFields := []any{"fnct", "Init", "Name", deviceDesc.Name, "Desc", deviceDesc.Description}
+	slog.Info(fmt.Sprintf("Init %s.", deviceDesc.Name), logFields...)
 	dev, err := e.DeviceDB.GetOrCreateDevice(deviceDesc)
 	if err != nil {
 		return Device{}, errors.Wrap(err, "Creating device failed")

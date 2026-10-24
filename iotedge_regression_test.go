@@ -15,6 +15,7 @@ package iotedge
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,41 +34,66 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/pat-rohn/timeseries"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-// logHook captures logrus entries so tests can assert on log output.
-type logHook struct {
-	mu      sync.Mutex
-	entries []*log.Entry
+// logEntry is one captured log record.
+type logEntry struct {
+	Level   slog.Level
+	Message string
 }
 
-func (h *logHook) Levels() []log.Level { return log.AllLevels }
-func (h *logHook) Fire(e *log.Entry) error {
-	h.mu.Lock()
-	h.entries = append(h.entries, e)
-	h.mu.Unlock()
-	return nil
+// logHook captures log records so tests can assert on log output.
+type logHook struct {
+	mu      sync.Mutex
+	entries []logEntry
 }
+
 func (h *logHook) hasErrorContaining(substr string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, e := range h.entries {
-		if e.Level <= log.ErrorLevel && strings.Contains(e.Message, substr) {
+		if e.Level >= slog.LevelError && strings.Contains(e.Message, substr) {
 			return true
 		}
 	}
 	return false
 }
 
-// withLogHook installs a capturing hook for the duration of fn and removes it afterwards.
+// captureHandler records every record, then passes it on unchanged.
+type captureHandler struct {
+	next slog.Handler
+	hook *logHook
+}
+
+func (c *captureHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (c *captureHandler) Handle(ctx context.Context, r slog.Record) error {
+	c.hook.mu.Lock()
+	c.hook.entries = append(c.hook.entries, logEntry{Level: r.Level, Message: r.Message})
+	c.hook.mu.Unlock()
+	if c.next.Enabled(ctx, r.Level) {
+		return c.next.Handle(ctx, r)
+	}
+	return nil
+}
+
+func (c *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &captureHandler{next: c.next.WithAttrs(attrs), hook: c.hook}
+}
+
+func (c *captureHandler) WithGroup(name string) slog.Handler {
+	return &captureHandler{next: c.next.WithGroup(name), hook: c.hook}
+}
+
+// withLogHook captures the log records written during fn.
 func withLogHook(fn func(h *logHook)) {
 	h := &logHook{}
-	old := log.StandardLogger().ReplaceHooks(make(log.LevelHooks))
-	log.AddHook(h)
-	defer log.StandardLogger().ReplaceHooks(old)
+	old := slog.Default()
+	slog.SetDefault(slog.New(&captureHandler{next: old.Handler(), hook: h}))
+	defer slog.SetDefault(old)
 	fn(h)
 }
 

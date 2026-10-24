@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 // migration is one schema step. Steps run in order, each in a transaction,
@@ -73,7 +73,7 @@ func (devDB *DeviceDB) Migrate() error {
 		if err := tx.Commit(); err != nil {
 			return err
 		}
-		log.WithField("fnct", "migrate").Infof("Applied schema migration %d (%s)", m.version, m.name)
+		slog.Info(fmt.Sprintf("Applied schema migration %d (%s)", m.version, m.name), "fnct", "migrate")
 	}
 	return nil
 }
@@ -190,7 +190,7 @@ func addLogsID(tx *sql.Tx, postgres bool) error {
 	if err != nil || exists {
 		return err
 	}
-	log.Warn("Old logs table schema detected (no id column) — migrating")
+	slog.Warn("Old logs table schema detected (no id column) — migrating")
 	for _, step := range []string{
 		`ALTER TABLE logs RENAME TO logs_old`,
 		`CREATE TABLE logs (

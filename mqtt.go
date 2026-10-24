@@ -18,7 +18,6 @@ import (
 	"github.com/mochi-mqtt/server/v2/packets"
 	"github.com/pat-rohn/go-iotedge/internal/homeassistant"
 	"github.com/pat-rohn/timeseries"
-	log "github.com/sirupsen/logrus"
 )
 
 type mqttMsg struct {
@@ -62,7 +61,7 @@ func (h *TimeseriesHandler) enqueue(topic, payload string) {
 	select {
 	case h.msgCh <- mqttMsg{topic: topic, payload: payload}:
 	default:
-		log.Warn("MQTT message queue full, dropping message")
+		slog.Warn("MQTT message queue full, dropping message")
 	}
 }
 
@@ -78,15 +77,15 @@ func (h *TimeseriesHandler) stopWorkers() {
 }
 
 func (h *TimeseriesHandler) processData(topic string, payload string) {
-	logger := log.WithFields(log.Fields{"topic": topic})
+	logger := slog.With("topic", topic)
 	splittedTopic := strings.Split(topic, "/")
 	if len(splittedTopic) <= 2 {
-		logger.Tracef("Ignoring topic without device and sensor: %v", splittedTopic)
+		logger.Log(context.Background(), LevelTrace, fmt.Sprintf("Ignoring topic without device and sensor: %v", splittedTopic))
 		return
 	}
 	uniqueID := splittedTopic[len(splittedTopic)-2]
-	logger = logger.WithField("uniqueID", uniqueID)
-	logger.Tracef("Received message: %s from topic: %s (%s)\n", string(payload), uniqueID, splittedTopic)
+	logger = logger.With("uniqueID", uniqueID)
+	logger.Log(context.Background(), LevelTrace, fmt.Sprintf("Received message: %s from topic: %s (%s)\n", string(payload), uniqueID, splittedTopic))
 	if splittedTopic[len(splittedTopic)-1] == "health" {
 		if h.recordHealth == nil {
 			logger.Warn("Received health report without a monitoring recorder")
@@ -94,15 +93,15 @@ func (h *TimeseriesHandler) processData(topic string, payload string) {
 		}
 		var report DeviceHealthReport
 		if err := json.Unmarshal([]byte(payload), &report); err != nil {
-			logger.Errorf("Invalid health payload: %v", err)
+			logger.Error(fmt.Sprintf("Invalid health payload: %v", err))
 			return
 		}
 		if report.Device != uniqueID {
-			logger.Errorf("Health payload device %q does not match topic device %q", report.Device, uniqueID)
+			logger.Error(fmt.Sprintf("Health payload device %q does not match topic device %q", report.Device, uniqueID))
 			return
 		}
 		if err := h.recordHealth(report); err != nil {
-			logger.Errorf("Failed to record health report: %v", err)
+			logger.Error(fmt.Sprintf("Failed to record health report: %v", err))
 			return
 		}
 		h.publishHomeAssistant(report.Device)
@@ -111,17 +110,17 @@ func (h *TimeseriesHandler) processData(topic string, payload string) {
 	if splittedTopic[len(splittedTopic)-1] != "data" {
 		// Availability, Home Assistant discovery, json/set, json/status, …:
 		// not measurements.
-		logger.Tracef("Ignoring topic: %v", payload)
+		logger.Log(context.Background(), LevelTrace, fmt.Sprintf("Ignoring topic: %v", payload))
 		return
 	}
 	_, err := strconv.ParseFloat(string(payload), 32)
 	if err != nil {
-		logger.Errorf("Not a valid number: %v", payload)
+		logger.Error(fmt.Sprintf("Not a valid number: %v", payload))
 		return
 	}
 	if h.recordActivity != nil && len(splittedTopic) >= 4 {
 		if err := h.recordActivity(splittedTopic[len(splittedTopic)-3]); err != nil {
-			logger.Errorf("Failed to record measurement activity: %v", err)
+			logger.Error(fmt.Sprintf("Failed to record measurement activity: %v", err))
 		}
 	}
 
@@ -169,7 +168,7 @@ func (h *TimeseriesHandler) getAndClearData() ([]timeseries.TimeseriesImportStru
 		timestamps = append(timestamps, impstr.Timestamps...)
 		var values []string
 		values = append(values, impstr.Values...)
-		log.Tracef("copied %d/%d entries", len(impstr.Values), len(impstr.Timestamps))
+		slog.Log(context.Background(), LevelTrace, fmt.Sprintf("copied %d/%d entries", len(impstr.Values), len(impstr.Timestamps)))
 		returnData = append(returnData, timeseries.TimeseriesImportStruct{
 			Tag:        impstr.Tag,
 			Timestamps: timestamps,
@@ -237,7 +236,7 @@ func (b *mqttBroker) Close() error {
 
 // startMQTTBroker starts the broker on port and returns once it listens.
 func (s *IoTEdge) startMQTTBroker(port int) (*mqttBroker, error) {
-	logFields := log.Fields{"tech": "mqtt", "fnct": "startMQTTBroker"}
+	logFields := []any{"tech", "mqtt", "fnct", "startMQTTBroker"}
 	if err := s.initIngestAuth(); err != nil {
 		return nil, err
 	}
@@ -274,13 +273,13 @@ func (s *IoTEdge) startMQTTBroker(port int) (*mqttBroker, error) {
 	if config.Monitoring.HomeAssistantDiscovery {
 		handler.publishRetained = func(topic, payload string) {
 			if err := server.Publish(topic, []byte(payload), true, 1); err != nil {
-				log.WithFields(logFields).Warnf("Failed to publish %s: %v", topic, err)
+				slog.Warn(fmt.Sprintf("Failed to publish %s: %v", topic, err), logFields...)
 			}
 		}
 		handler.summarize = func(device string) (DeviceMonitoringSummary, bool) {
 			summary, err := deviceDB.GetMonitoringSummary(config.Monitoring, time.Now())
 			if err != nil {
-				log.WithFields(logFields).Errorf("Failed to summarize monitoring: %v", err)
+				slog.Error(fmt.Sprintf("Failed to summarize monitoring: %v", err), logFields...)
 				return DeviceMonitoringSummary{}, false
 			}
 			for _, d := range summary.Devices {
@@ -291,7 +290,7 @@ func (s *IoTEdge) startMQTTBroker(port int) (*mqttBroker, error) {
 			return DeviceMonitoringSummary{}, false
 		}
 	}
-	log.WithFields(logFields).Infof("MQTT broker listening on port %d", port)
+	slog.Info(fmt.Sprintf("MQTT broker listening on port %d", port), logFields...)
 	return &mqttBroker{server: server, handler: handler}, nil
 }
 
@@ -302,7 +301,7 @@ const mqttShutdownBudget = 10 * time.Second
 // forwards) the buffered measurements every UploadInterval seconds. When ctx
 // is cancelled it stops the broker and flushes what is still buffered.
 func (s *IoTEdge) StartMQTTBroker(ctx context.Context) error {
-	logFields := log.Fields{"tech": "mqtt", "fnct": "StartMQTTBroker"}
+	logFields := []any{"tech", "mqtt", "fnct", "StartMQTTBroker"}
 	config := s.IoTConfig
 	broker, err := s.startMQTTBroker(config.MQTTPort)
 	if err != nil {
@@ -312,22 +311,22 @@ func (s *IoTEdge) StartMQTTBroker(ctx context.Context) error {
 
 	interval := time.Second * time.Duration(config.UploadInterval)
 	if interval <= 0 {
-		log.WithFields(logFields).Warnf("UploadInterval %d is not positive, using 30 s", config.UploadInterval)
+		slog.Warn(fmt.Sprintf("UploadInterval %d is not positive, using 30 s", config.UploadInterval), logFields...)
 		interval = 30 * time.Second
 	}
 	var fwd *forwarder
 	if forwarding := config.forwarding(); forwarding.URL != "" {
 		fwd = newForwarder(s.DeviceDB, forwarding)
-		log.WithFields(logFields).Infof("Forwarding MQTT readings to %s", forwarding.URL)
+		slog.Info(fmt.Sprintf("Forwarding MQTT readings to %s", forwarding.URL), logFields...)
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			log.WithFields(logFields).Info("Stopping MQTT broker, flushing buffered readings")
+			slog.Info("Stopping MQTT broker, flushing buffered readings", logFields...)
 			if err := broker.Close(); err != nil {
-				log.WithFields(logFields).Warnf("Closing MQTT broker: %v", err)
+				slog.Warn(fmt.Sprintf("Closing MQTT broker: %v", err), logFields...)
 			}
 			// Forwarded readings go to the outbox; the next start delivers them.
 			s.storeMQTTData(broker.handler, time.Now().Add(mqttShutdownBudget), fwd)
@@ -344,44 +343,44 @@ func (s *IoTEdge) StartMQTTBroker(ctx context.Context) error {
 // storeMQTTData stores the buffered readings, or queues them for fwd when
 // forwarding is configured; inserts must finish before deadline.
 func (s *IoTEdge) storeMQTTData(handler *TimeseriesHandler, deadline time.Time, fwd *forwarder) {
-	logFields := log.Fields{"tech": "mqtt", "fnct": "storeMQTTData"}
+	logFields := []any{"tech", "mqtt", "fnct", "storeMQTTData"}
 	config := s.IoTConfig
 	data, err := handler.getAndClearData()
 	if err != nil {
-		log.WithFields(logFields).Errorf("Failed to get and clear data %v", err)
+		slog.Error(fmt.Sprintf("Failed to get and clear data %v", err), logFields...)
 		return
 	}
 	if len(data) == 0 {
 		return
 	}
-	log.WithFields(logFields).Debugf("Got data %d", len(data))
+	slog.Debug(fmt.Sprintf("Got data %d", len(data)), logFields...)
 	if fwd != nil {
 		if err := fwd.enqueue(data); err != nil {
-			log.WithFields(logFields).Errorf("Failed to queue MQTT data for forwarding: %v", err)
+			slog.Error(fmt.Sprintf("Failed to queue MQTT data for forwarding: %v", err), logFields...)
 		}
 		return
 	}
 	if err := insertData(s.DeviceDB.DbHandler, data, deadline, config.TimeseriesTable); err != nil {
-		log.WithFields(logFields).Errorf("Failed to insert MQTT data: %v", err)
+		slog.Error(fmt.Sprintf("Failed to insert MQTT data: %v", err), logFields...)
 	}
 }
 
 func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStruct, nextUploadTime time.Time, table string) error {
-	logger := log.WithFields(log.Fields{"tech": "mqtt", "fnct": "insertData"})
+	logger := slog.With("tech", "mqtt", "fnct", "insertData")
 	failed := 0
 	for i, tsVal := range data {
 		timeTillNextIncome := time.Until(nextUploadTime)
 		if timeTillNextIncome <= time.Second*2 {
-			logger.Errorln("Too much data, abort")
+			logger.Error("Too much data, abort")
 			return fmt.Errorf("aborted after %d/%d series: time budget exceeded", i, len(data))
 		}
-		logger.Tracef("insert %d/%d entries for %s ", len(tsVal.Timestamps), len(tsVal.Values), tsVal.Tag)
+		logger.Log(context.Background(), LevelTrace, fmt.Sprintf("insert %d/%d entries for %s ", len(tsVal.Timestamps), len(tsVal.Values), tsVal.Tag))
 		inserted := false
 		timeOut := time.Now().Add(time.Second * 2)
 		for time.Now().Before(timeOut) {
 			err := dbh.InsertTimeseries(tsVal, true, table)
 			if err != nil {
-				logger.Warnf("Failed to insert values into database: %v", err)
+				logger.Warn(fmt.Sprintf("Failed to insert values into database: %v", err))
 				time.Sleep(time.Millisecond * 50)
 			} else {
 				inserted = true
@@ -389,7 +388,7 @@ func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStr
 			}
 		}
 		if !inserted {
-			logger.Errorf("Giving up on series %s after retries", tsVal.Tag)
+			logger.Error(fmt.Sprintf("Giving up on series %s after retries", tsVal.Tag))
 			failed++
 		}
 	}
