@@ -6,6 +6,7 @@ package iotedge
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -66,15 +67,23 @@ func TestDeviceLogIsPersistedOnce(t *testing.T) {
 	}
 }
 
-func TestGetDeviceDBReuseDoesNotLogAtInfo(t *testing.T) {
-	cfg := regressionIoT().IoTConfig.DbConfig
+// P1: every MQTT reading refreshes the device's activity. That path must not
+// log at Info, or each reading becomes a log line.
+func TestRecordDeviceActivityDoesNotLogAtInfo(t *testing.T) {
+	iot := regressionIoT()
+	device := "p1-activity-" + uuid.NewString()
+	if err := iot.DeviceDB.RecordDeviceActivity(device, time.Now()); err != nil { // creates the device
+		t.Fatal(err)
+	}
 	withLogHook(func(h *logHook) {
-		GetDeviceDB(cfg)
+		if err := iot.DeviceDB.RecordDeviceActivity(device, time.Now()); err != nil {
+			t.Fatal(err)
+		}
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		for _, e := range h.entries {
 			if e.Level <= log.InfoLevel {
-				t.Errorf("GetDeviceDB logged at %s: %q", e.Level, e.Message)
+				t.Errorf("RecordDeviceActivity logged at %s: %q", e.Level, e.Message)
 			}
 		}
 	})

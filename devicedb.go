@@ -129,7 +129,7 @@ func (devDB *DeviceDB) RecordDeviceAddress(name, address string, now time.Time) 
 
 func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	logFields := log.Fields{"fnct": "GetOrCreateDevice", "device": descr.Name}
-	log.WithFields(logFields).Infoln("GetOrCreateDevice")
+	log.WithFields(logFields).Debugln("GetOrCreateDevice")
 	startTime := time.Now()
 
 	var insertSQL string
@@ -165,7 +165,7 @@ func (devDB *DeviceDB) GetOrCreateDevice(descr DeviceDesc) (Device, error) {
 	if err = rows.Err(); err != nil {
 		return Device{}, err
 	}
-	log.WithFields(logFields).Infof("Device has ID %d (took %v)", dev.ID, time.Since(startTime))
+	log.WithFields(logFields).Debugf("Device has ID %d (took %v)", dev.ID, time.Since(startTime))
 	return dev, nil
 }
 
