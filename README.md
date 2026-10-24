@@ -22,6 +22,27 @@ values with linker flags:
 go build -ldflags "-X github.com/pat-rohn/go-iotedge.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X github.com/pat-rohn/go-iotedge.commitHash=$(git rev-parse HEAD)" ./cmd/IoTServer
 ```
 
+## Dashboard
+
+Log in at `/` with `Password`. Pages, all served from the binary (no
+internet needed):
+
+- **Overview** — online/stale/never-seen devices, what needs attention and
+  the latest warnings and errors; updates itself every few seconds.
+- **Devices** — every device with status, firmware and a link to its own
+  page. A device's page has charts of Wi-Fi signal, free heap and uptime
+  (24 h / 7 d / 30 d), its restarts and logs, and forms for interval, buffer
+  and sensor offsets.
+- **Measurements** — one tag over a range with min/max/average, a chart and
+  CSV export.
+- **Logs** — filter by device and level.
+- **System** — version, database, MQTT broker, forwarding and the
+  configuration settings that weaken the server.
+
+Health reports are kept for `Monitoring.HealthHistoryDays` (default 30).
+After 5 failed logins from one address, logins from it are refused for a
+minute, doubling up to 15 minutes. Dark mode follows the operating system.
+
 ## API
 
 `/api/v1` is the versioned JSON API, described in [openapi.yaml](openapi.yaml)
