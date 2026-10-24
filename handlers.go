@@ -276,13 +276,17 @@ func (s *IoTEdge) recordDeviceAddress(c *gin.Context, device string, now time.Ti
 }
 
 func (s *IoTEdge) ConfigureDeviceHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "ConfigureDevice"}
 	var p ConfigureDeviceReq
 	if err := c.BindJSON(&p); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Input error: %v", err)})
 		return
 	}
-	log.WithFields(logFields).Infof("Value: %+v", p)
+	s.configureDevice(c, p)
+}
+
+// configureDevice sets interval and buffer and answers with the device.
+func (s *IoTEdge) configureDevice(c *gin.Context, p ConfigureDeviceReq) {
+	log.WithField("fnct", "configureDevice").Infof("Value: %+v", p)
 	dev, err := s.DeviceDB.GetDevice(p.Name)
 	if err != nil {
 		if errors.Is(err, ErrDeviceNotFound) {
@@ -302,13 +306,17 @@ func (s *IoTEdge) ConfigureDeviceHandler(c *gin.Context) {
 }
 
 func (s *IoTEdge) ConfSensorHandler(c *gin.Context) {
-	logFields := log.Fields{"fnct": "ConfSensor"}
 	var p ConfigureSensorReq
 	if err := c.BindJSON(&p); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("input error: %v", err)})
 		return
 	}
-	log.WithFields(logFields).Infof("Value: %+v", p)
+	s.configureSensor(c, p)
+}
+
+// configureSensor sets a sensor's offset and answers with its device.
+func (s *IoTEdge) configureSensor(c *gin.Context, p ConfigureSensorReq) {
+	log.WithField("fnct", "configureSensor").Infof("Value: %+v", p)
 	dev, err := s.DeviceDB.GetDevice(p.Name)
 	if err != nil {
 		if errors.Is(err, ErrDeviceNotFound) {

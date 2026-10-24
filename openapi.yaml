@@ -1,0 +1,343 @@
+openapi: 3.0.3
+info:
+  title: go-iotedge API
+  version: "1"
+  description: |
+    Versioned JSON API of go-iotedge. Device routes take the same bodies as
+    the paths the firmware uses today (/init-device, /timeseries/save,
+    /upload-data, /update-sensor, /api/log, /monitoring/health), which stay
+    as aliases. Device routes check the ingest token when
+    Security.IngestAuth is "warn" or "enforce"; admin routes need a
+    dashboard login (POST /login).
+servers:
+  - url: /api/v1
+
+components:
+  securitySchemes:
+    ingestToken:
+      type: http
+      scheme: bearer
+      description: Security.IngestToken; only checked when Security.IngestAuth is not "off".
+    session:
+      type: apiKey
+      in: cookie
+      name: edge-server-session
+      description: Set by POST /login with the dashboard password.
+  responses:
+    Error:
+      description: Failure, with a message.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    DeviceRegistration:
+      type: object
+      required: [Device]
+      properties:
+        Device:
+          type: object
+          required: [Name]
+          properties:
+            Name: { type: string }
+            Description:
+              type: string
+              description: Kept when empty; the firmware sends chip, firmware and IP.
+            Sensors:
+              type: array
+              items: { type: string }
+    Device:
+      type: object
+      properties:
+        ID: { type: integer }
+        Name: { type: string }
+        Interval: { type: number, description: Measurement interval in seconds. }
+        Buffer: { type: integer, description: Readings buffered before sending. }
+        Description: { type: string }
+    Sensor:
+      type: object
+      properties:
+        ID: { type: integer }
+        DeviceID: { type: integer }
+        Name: { type: string }
+        SensorOffset: { type: number }
+    DeviceConfig:
+      allOf:
+        - $ref: "#/components/schemas/Device"
+        - type: object
+          properties:
+            Sensors:
+              type: array
+              nullable: true
+              items: { $ref: "#/components/schemas/Sensor" }
+            Address:
+              type: string
+              description: IP the device last sent from; empty if never seen over HTTP.
+            AddressSeenAt: { type: string, format: date-time, nullable: true }
+    Series:
+      type: object
+      required: [Tag, Timestamps, Values]
+      properties:
+        Tag: { type: string }
+        Timestamps:
+          type: array
+          description: RFC3339 or "YYYY-MM-DD HH:MM:SS[.fff]", one per value.
+          items: { type: string }
+        Values:
+          type: array
+          description: Numbers as strings; anything else is stored as null.
+          items: { type: string }
+        Comments:
+          type: array
+          items: { type: string }
+    Readings:
+      type: object
+      properties:
+        Tags:
+          type: array
+          items: { type: string }
+        Data:
+          type: array
+          description: Stored with the server's time.
+          items:
+            type: object
+            properties:
+              Name: { type: string, description: Tag. }
+              Value: { type: number }
+    LogLevel:
+      type: integer
+      enum: [0, 1, 2, 3]
+      description: 0 Debug, 1 Info, 2 Warning, 3 Error.
+    LogMessage:
+      type: object
+      properties:
+        Timestamp: { type: string, format: date-time, description: Ignored on POST; the server sets it. }
+        Device: { type: string }
+        Text: { type: string }
+        Level: { $ref: "#/components/schemas/LogLevel" }
+    HealthReport:
+      type: object
+      required: [device]
+      properties:
+        device: { type: string }
+        boot_id: { type: string, description: A new value counts as one restart. }
+        firmware_version: { type: string }
+        uptime_seconds: { type: integer }
+        free_heap_bytes: { type: integer }
+        wifi_rssi: { type: integer }
+        time_synced: { type: boolean }
+        sensor_age_seconds: { type: integer }
+    DeviceMonitoring:
+      type: object
+      properties:
+        device: { type: string }
+        status: { type: string, enum: [online, stale, never_seen] }
+        last_seen: { type: string, format: date-time }
+        firmware_version: { type: string }
+        restarts: { type: integer }
+    MonitoringSummary:
+      type: object
+      properties:
+        online_window_minutes: { type: integer }
+        restart_window_days: { type: integer }
+        online: { type: integer }
+        stale: { type: integer }
+        never_seen: { type: integer }
+        devices:
+          type: array
+          items: { $ref: "#/components/schemas/DeviceMonitoring" }
+    Version:
+      type: object
+      properties:
+        date: { type: string }
+        commit: { type: string }
+
+paths:
+  /devices:
+    post:
+      operationId: registerDevice
+      summary: Register a device and its sensors (alias /init-device)
+      description: Creates the device and missing sensors and records the sender's IP as its address.
+      security: [{ ingestToken: [] }, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceRegistration" }
+      responses:
+        "200":
+          description: The device with the Interval and Buffer the firmware applies.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Device" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listDevices
+      summary: List devices with sensors and addresses
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: All devices.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DeviceConfig" }
+        "401": { $ref: "#/components/responses/Error" }
+  /devices/{name}:
+    put:
+      operationId: configureDevice
+      summary: Set a device's interval and buffer (alias /device/configure)
+      security: [{ session: [] }]
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Interval: { type: number }
+                Buffer: { type: integer }
+      responses:
+        "200":
+          description: The updated device.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Device" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /devices/{name}/sensors/{sensor}:
+    put:
+      operationId: configureSensor
+      summary: Set a sensor's offset (alias /sensor/configure)
+      security: [{ session: [] }]
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: sensor, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                SensorOffset: { type: number }
+      responses:
+        "200":
+          description: The sensor's device.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Device" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /measurements:
+    post:
+      operationId: storeMeasurements
+      summary: Store timestamped readings (aliases /timeseries/save, /upload-data)
+      description: All series are stored or none; a repeated (tag, time) is skipped.
+      security: [{ ingestToken: [] }, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: "#/components/schemas/Series" }
+      responses:
+        "200": { description: Stored. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "500": { $ref: "#/components/responses/Error" }
+  /readings:
+    post:
+      operationId: storeReadings
+      summary: Store readings with the server's time (alias /update-sensor)
+      security: [{ ingestToken: [] }, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Readings" }
+      responses:
+        "200": { description: Stored. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+  /logs:
+    post:
+      operationId: storeLog
+      summary: Store a device log message (alias /api/log)
+      security: [{ ingestToken: [] }, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LogMessage" }
+      responses:
+        "200": { description: Stored. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listLogs
+      summary: Read log messages, newest first
+      security: [{ session: [] }]
+      parameters:
+        - { name: device, in: query, schema: { type: string } }
+        - { name: level, in: query, schema: { $ref: "#/components/schemas/LogLevel" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 100 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Log messages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/LogMessage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+  /health:
+    post:
+      operationId: reportHealth
+      summary: Report device health (alias /monitoring/health)
+      security: [{ ingestToken: [] }, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HealthReport" }
+      responses:
+        "200": { description: Recorded. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+  /monitoring:
+    get:
+      operationId: getMonitoring
+      summary: Online, stale and never-seen devices with restart counts
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: Summary.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonitoringSummary" }
+        "401": { $ref: "#/components/responses/Error" }
+  /version:
+    get:
+      operationId: getVersion
+      summary: Build date and commit (alias /version)
+      security: []
+      responses:
+        "200":
+          description: Build metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Version" }

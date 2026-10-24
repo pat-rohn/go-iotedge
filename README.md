@@ -22,6 +22,15 @@ values with linker flags:
 go build -ldflags "-X github.com/pat-rohn/go-iotedge.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X github.com/pat-rohn/go-iotedge.commitHash=$(git rev-parse HEAD)" ./cmd/IoTServer
 ```
 
+## API
+
+`/api/v1` is the versioned JSON API, described in [openapi.yaml](openapi.yaml)
+and served at `GET /api/v1/openapi.yaml`. Device routes (`POST /devices`,
+`/measurements`, `/readings`, `/logs`, `/health`) take the same bodies as the
+paths the firmware uses today, which stay as aliases. Admin routes (`GET
+/devices`, `/logs`, `/monitoring`, `PUT /devices/{name}`,
+`/devices/{name}/sensors/{sensor}`) need a dashboard login (`POST /login`).
+
 ## Security settings
 
 Optional hardening in `iot.json`. Everything defaults to off, so an existing

@@ -282,6 +282,7 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	router.POST(URIDeviceConfigure, append(admin, s.ConfigureDeviceHandler)...)
 	router.POST(URILogging, s.ingestAuth.handler, s.LogHandler)
 	router.POST(URIMonitoringHealth, s.ingestAuth.handler, s.MonitoringHealthHandler)
+	s.registerAPIv1(router)
 	return router, nil
 }
 
