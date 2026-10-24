@@ -918,3 +918,266 @@ button {
     gap: 0.5rem;
     margin-top: 1rem;
 }
+
+/* ============================================================
+   Device page
+   ============================================================ */
+.breadcrumb {
+    font-size: 0.875rem;
+    margin-bottom: 0.25rem;
+}
+
+.breadcrumb a,
+.section-subtitle a {
+    color: var(--c-accent-dark);
+}
+
+.section-note {
+    color: var(--c-text-secondary);
+    font-size: 0.875rem;
+    margin: -0.25rem 0 0.75rem;
+}
+
+.stat-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    margin-bottom: 0.5rem;
+}
+
+.stat-tile {
+    background: var(--c-card-bg);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    gap: 0.125rem;
+    padding: 0.875rem 1rem;
+}
+
+.stat-label {
+    color: var(--c-text-secondary);
+    font-size: 0.8125rem;
+}
+
+.stat-tile strong {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.range-presets {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.range-preset {
+    border: 1px solid var(--c-border);
+    border-radius: 20px;
+    color: var(--c-text-secondary);
+    font-size: 0.8125rem;
+    padding: 0.25rem 0.75rem;
+    text-decoration: none;
+}
+
+.range-preset[aria-current="true"] {
+    background: var(--c-accent-bg);
+    border-color: var(--c-accent);
+    color: var(--c-accent-dark);
+    font-weight: 600;
+}
+
+/* Charts: one series each, so the title names it and there is no legend. */
+.chart-grid {
+    --series-1: #2a78d6;
+    --chart-grid: #e2e8f0;
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.chart {
+    margin: 0;
+    overflow: visible;
+    padding: 0.875rem 1rem 0.5rem;
+    position: relative;
+}
+
+.chart:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+}
+
+.chart figcaption {
+    display: flex;
+    gap: 0.375rem;
+    align-items: baseline;
+}
+
+.chart-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.chart-unit {
+    color: var(--c-text-secondary);
+    font-size: 0.75rem;
+}
+
+.chart-plot {
+    width: 100%;
+}
+
+.chart-plot svg {
+    display: block;
+    overflow: visible;
+}
+
+.chart-grid line.chart-grid {
+    stroke: var(--chart-grid);
+    stroke-width: 1;
+}
+
+.chart-tick {
+    fill: var(--c-text-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-line {
+    fill: none;
+    stroke: var(--series-1);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+}
+
+.chart-area {
+    fill: var(--series-1);
+    opacity: 0.1;
+}
+
+.chart-dot {
+    fill: var(--series-1);
+    stroke: var(--c-card-bg);
+    stroke-width: 2;
+}
+
+.chart-end-label {
+    fill: var(--c-text-primary);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.chart-crosshair {
+    stroke: var(--c-text-muted);
+    stroke-width: 1;
+}
+
+.chart-tooltip {
+    background: var(--c-card-bg);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-md);
+    display: grid;
+    font-size: 0.75rem;
+    padding: 0.375rem 0.625rem;
+    pointer-events: none;
+    position: absolute;
+    top: 2.25rem;
+    white-space: nowrap;
+    z-index: 2;
+}
+
+.chart-tooltip[hidden] {
+    display: none;
+}
+
+.chart-tooltip strong {
+    font-size: 0.875rem;
+}
+
+.chart-tooltip span {
+    color: var(--c-text-secondary);
+}
+
+.chart-table summary {
+    color: var(--c-text-secondary);
+    cursor: pointer;
+    font-size: 0.8125rem;
+    padding: 0.375rem 0;
+}
+
+.chart-table table {
+    max-height: 240px;
+    display: block;
+    overflow-y: auto;
+}
+
+/* Forms */
+.settings-form {
+    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.inline-form {
+    margin: 0;
+}
+
+.inline-form input {
+    background: var(--c-card-bg);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-md);
+    font: inherit;
+    font-size: 0.875rem;
+    padding: 0.25rem 0.5rem;
+    width: 7rem;
+}
+
+.btn-save,
+.btn-secondary {
+    border-radius: var(--r-md);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    min-height: 2.25rem;
+    padding: 0.375rem 1rem;
+}
+
+.btn-save {
+    background: var(--c-accent-dark);
+    border: 1px solid var(--c-accent-dark);
+    color: #fff;
+}
+
+.btn-secondary {
+    background: var(--c-card-bg);
+    border: 1px solid var(--c-border);
+    color: var(--c-text-primary);
+}
+
+.form-status {
+    color: var(--c-success);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.form-error {
+    color: var(--c-error);
+    font-size: 0.875rem;
+}
+
+.device-link {
+    color: var(--c-text-primary);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.device-link:hover {
+    color: var(--c-accent-dark);
+    text-decoration: underline;
+}

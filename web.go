@@ -1,12 +1,14 @@
 package iotedge
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -57,8 +59,46 @@ var templateFuncs = template.FuncMap{
 		}
 		return status
 	},
+	"pathEscape": url.PathEscape,
+	// Times are stored in UTC; pages show the server's local time, like the
+	// charts show the browser's.
+	"localTime":   func(t time.Time) string { return t.Local().Format("2006-01-02 15:04:05") },
+	"localMinute": func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
+	"clockStatus": func(synced *bool) string {
+		switch {
+		case synced == nil:
+			return "—"
+		case *synced:
+			return "Synced"
+		}
+		return "Not synced"
+	},
+	// dict builds a map for passing several values to a sub-template.
+	"dict": func(kv ...any) map[string]any {
+		m := make(map[string]any, len(kv)/2)
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[fmt.Sprint(kv[i])] = kv[i+1]
+		}
+		return m
+	},
 	"int":   func(l Loglevel) int { return int(l) },
 	"deref": func(l *Loglevel) Loglevel { return *l },
+	"kb": func(b *int64) string {
+		if b == nil {
+			return "—"
+		}
+		return fmt.Sprintf("%.0f KB", float64(*b)/1024)
+	},
+	"duration": func(seconds *int64) string {
+		if seconds == nil {
+			return "—"
+		}
+		d := time.Duration(*seconds) * time.Second
+		if d >= 24*time.Hour {
+			return fmt.Sprintf("%d d %d h", int(d.Hours())/24, int(d.Hours())%24)
+		}
+		return fmt.Sprintf("%d h %d min", int(d.Hours()), int(d.Minutes())%60)
+	},
 }
 
 var (
@@ -70,7 +110,7 @@ var (
 func pageTemplate(name string) *template.Template {
 	pageTemplatesOnce.Do(func() {
 		pageTemplates = map[string]*template.Template{}
-		for _, page := range []string{"overview.html", "devices.html", "logs.html"} {
+		for _, page := range []string{"overview.html", "devices.html", "logs.html", "device.html", "notfound.html"} {
 			pageTemplates[page] = template.Must(template.New(page).Funcs(templateFuncs).
 				ParseFS(templatesFS, "templates/layout.html", "templates/pages/"+page))
 		}
@@ -98,12 +138,19 @@ func csrfToken(c *gin.Context) string {
 
 // renderPage writes a dashboard page in the shared layout.
 func (s *IoTEdge) renderPage(c *gin.Context, current, title, tmpl string, data any) {
+	s.renderPageStatus(c, http.StatusOK, current, title, tmpl, data)
+}
+
+func (s *IoTEdge) renderPageStatus(c *gin.Context, status int, current, title, tmpl string, data any) {
 	page := pageData{Nav: dashboardNav, Current: current, Title: title, CSRF: csrfToken(c), Build: CurrentVersion(), Data: data}
-	c.Status(http.StatusOK)
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	if err := pageTemplate(tmpl).ExecuteTemplate(c.Writer, "layout", page); err != nil {
+	// Render fully first: a template error must not leave a half page.
+	var buf bytes.Buffer
+	if err := pageTemplate(tmpl).ExecuteTemplate(&buf, "layout", page); err != nil {
 		slog.Error(fmt.Sprintf("render %s: %v", tmpl, err), "fnct", "renderPage")
+		c.String(http.StatusInternalServerError, "failed to render page")
+		return
 	}
+	c.Data(status, "text/html; charset=utf-8", buf.Bytes())
 }
 
 func (s *IoTEdge) overviewPage(c *gin.Context) {

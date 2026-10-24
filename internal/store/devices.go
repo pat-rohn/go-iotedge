@@ -16,7 +16,12 @@ var ErrDeviceNotFound = errors.New("device not found")
 type DeviceDB struct {
 	*timeseries.DbHandler
 	conf timeseries.DBConfig
+	// healthRetention is how long health history is kept.
+	healthRetention time.Duration
 }
+
+// DefaultHealthHistoryDays is how long health history is kept by default.
+const DefaultHealthHistoryDays = 30
 
 // OpenDeviceDB opens a database connection pool of its own and migrates the
 // schema. Close it with Close.
@@ -25,7 +30,7 @@ func OpenDeviceDB(config timeseries.DBConfig) (*DeviceDB, error) {
 	if err != nil {
 		return nil, err
 	}
-	devDB := &DeviceDB{DbHandler: dbh, conf: config}
+	devDB := &DeviceDB{DbHandler: dbh, conf: config, healthRetention: DefaultHealthHistoryDays * 24 * time.Hour}
 	if err := devDB.Migrate(); err != nil {
 		dbh.Close()
 		return nil, fmt.Errorf("migrate database schema: %w", err)
@@ -268,3 +273,8 @@ func (devDB *DeviceDB) InsertSensor(sensor Sensor) error {
 
 // levelTrace is below slog.LevelDebug, for per-query detail.
 const levelTrace = slog.Level(-8)
+
+// SetHealthHistoryRetention sets how long health history is kept.
+func (devDB *DeviceDB) SetHealthHistoryRetention(d time.Duration) {
+	devDB.healthRetention = d
+}

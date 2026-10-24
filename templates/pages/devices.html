@@ -38,7 +38,7 @@
                 </td>
                 <td>{{.ID}}</td>
                 <td class="device-name">
-                    <div>{{.Name}}</div>
+                    <div><a class="device-link" href="/dashboard/devices/{{pathEscape .Name}}">{{.Name}}</a></div>
                     <div class="device-monitoring">
                         <span class="device-status status-{{$monitor.Status}}">
                         {{statusName $monitor.Status}}
@@ -47,7 +47,7 @@
                         <span>{{$monitor.FirmwareVersion}}</span>
                         {{end}}
                         {{if $monitor.LastSeen}}
-                        <span>seen {{$monitor.LastSeen.Format "2006-01-02 15:04"}}</span>
+                        <span>seen {{localMinute $monitor.LastSeen}}</span>
                         {{end}}
                         {{if gt $monitor.Restarts 0}}
                         <span>{{$monitor.Restarts}} restart{{if gt $monitor.Restarts 1}}s{{end}}/{{$.Data.Monitoring.RestartWindowDays}}d</span>
@@ -57,7 +57,7 @@
                 <td class="device-address">
                     {{if .Address}}
                     <a href="{{.URL}}" target="_blank" rel="noopener">{{.Address}}</a>
-                    {{if .AddressSeenAt}}<span>seen {{.AddressSeenAt.Format "2006-01-02 15:04"}}</span>{{end}}
+                    {{if .AddressSeenAt}}<span>seen {{localMinute .AddressSeenAt}}</span>{{end}}
                     {{else}}
                     <span class="no-sensors">—</span>
                     {{end}}

@@ -87,6 +87,7 @@ func New(iotConfig IoTConfig) IoTEdge {
 		fatal(fmt.Sprintf("failed to create table: %v", err))
 	}
 	s.IoTConfig.Monitoring = s.IoTConfig.Monitoring.Normalized()
+	s.DeviceDB.SetHealthHistoryRetention(time.Duration(s.IoTConfig.Monitoring.HealthHistoryDays) * 24 * time.Hour)
 	if err := s.IoTConfig.Monitoring.Validate(); err != nil {
 		fatal(fmt.Sprintf("invalid monitoring configuration: %v", err))
 	}
@@ -135,6 +136,7 @@ func GetConfig() IoTConfig {
 	viper.SetDefault("AllowedOrigins", []string{})
 	viper.SetDefault("Monitoring.OnlineWindowMinutes", store.DefaultOnlineWindowMinutes)
 	viper.SetDefault("Monitoring.RestartWindowDays", store.DefaultRestartWindowDays)
+	viper.SetDefault("Monitoring.HealthHistoryDays", store.DefaultHealthHistoryDays)
 	viper.SetDefault("Monitoring.HomeAssistantDiscovery", false)
 	viper.SetDefault("Security.RequireCredentials", false)
 	viper.SetDefault("Security.ProtectAdminRoutes", false)
@@ -280,6 +282,9 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	router.GET(URIDashboard, s.AuthenticationHandler, s.DashboardHandler)
 	router.GET(URIDashboard+"/devices", s.AuthenticationHandler, s.devicesPage)
 	router.GET(URIDashboard+"/logs", s.AuthenticationHandler, s.logsPage)
+	router.GET(URIDashboard+"/devices/:name", s.AuthenticationHandler, s.devicePage)
+	router.PUT(URIDashboard+"/devices/:name", s.AuthenticationHandler, s.csrfProtect, s.updateDeviceSettings)
+	router.PUT(URIDashboard+"/devices/:name/sensors/:sensor", s.AuthenticationHandler, s.csrfProtect, s.updateSensorOffset)
 	router.POST(URIUploadData, s.ingestAuth.handler, s.UploadDataHandler)
 	router.POST(URISaveTimeseries, s.ingestAuth.handler, s.SaveTimeseriesHandler)
 	router.POST(URIInitDevice, s.ingestAuth.handler, s.InitDeviceHandler)

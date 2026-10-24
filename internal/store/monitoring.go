@@ -18,6 +18,8 @@ type MonitoringConfig struct {
 	// HomeAssistantDiscovery opts in to publishing discovery and state for
 	// server-computed entities (last seen, restart count) to the MQTT broker.
 	HomeAssistantDiscovery bool
+	// HealthHistoryDays is how long health reports are kept for the charts.
+	HealthHistoryDays int
 }
 
 type DeviceHealthReport struct {
@@ -54,6 +56,9 @@ func (c MonitoringConfig) Normalized() MonitoringConfig {
 	}
 	if c.RestartWindowDays == 0 {
 		c.RestartWindowDays = DefaultRestartWindowDays
+	}
+	if c.HealthHistoryDays == 0 {
+		c.HealthHistoryDays = DefaultHealthHistoryDays
 	}
 	return c
 }
@@ -120,6 +125,9 @@ func (devDB *DeviceDB) RecordDeviceHealth(report DeviceHealthReport, now time.Ti
 	if _, err := devDB.DB.Exec(upsert, report.Device, lastSeen, report.FirmwareVersion, report.UptimeSeconds,
 		report.FreeHeapBytes, report.WiFiRSSI, report.TimeSynced, report.SensorAgeSeconds); err != nil {
 		return fmt.Errorf("upsert device health: %w", err)
+	}
+	if err := devDB.recordHealthHistory(report, lastSeen); err != nil {
+		return err
 	}
 	if report.BootID == "" {
 		return nil
@@ -212,4 +220,77 @@ func (devDB *DeviceDB) GetMonitoringSummary(config MonitoringConfig, now time.Ti
 		return MonitoringSummary{}, fmt.Errorf("iterate monitoring summary: %w", err)
 	}
 	return summary, nil
+}
+
+// HealthSample is one health report from the history.
+type HealthSample struct {
+	At               time.Time
+	UptimeSeconds    *int64
+	FreeHeapBytes    *int64
+	WiFiRSSI         *int
+	TimeSynced       *bool
+	SensorAgeSeconds *int64
+}
+
+// Restart is a boot of a device, recorded with its first health report.
+type Restart struct {
+	BootID     string
+	OccurredAt time.Time
+}
+
+func (devDB *DeviceDB) recordHealthHistory(report DeviceHealthReport, at time.Time) error {
+	if _, err := devDB.DB.Exec(devDB.Rebind(`INSERT INTO device_health_history
+		(device_name, recorded_at, uptime_seconds, free_heap_bytes, wifi_rssi, time_synced, sensor_age_seconds)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`), report.Device, at.Unix(), report.UptimeSeconds, report.FreeHeapBytes,
+		report.WiFiRSSI, report.TimeSynced, report.SensorAgeSeconds); err != nil {
+		return fmt.Errorf("insert health history: %w", err)
+	}
+	if devDB.healthRetention > 0 {
+		if _, err := devDB.DB.Exec(devDB.Rebind(`DELETE FROM device_health_history WHERE device_name = ? AND recorded_at < ?`),
+			report.Device, at.Add(-devDB.healthRetention).Unix()); err != nil {
+			return fmt.Errorf("prune health history: %w", err)
+		}
+	}
+	return nil
+}
+
+// GetHealthHistory returns a device's health reports since the given time,
+// oldest first.
+func (devDB *DeviceDB) GetHealthHistory(device string, since time.Time) ([]HealthSample, error) {
+	rows, err := devDB.DB.Query(devDB.Rebind(`SELECT recorded_at, uptime_seconds, free_heap_bytes, wifi_rssi, time_synced, sensor_age_seconds
+		FROM device_health_history WHERE device_name = ? AND recorded_at >= ? ORDER BY recorded_at, id`), device, since.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var samples []HealthSample
+	for rows.Next() {
+		var s HealthSample
+		var at int64
+		if err := rows.Scan(&at, &s.UptimeSeconds, &s.FreeHeapBytes, &s.WiFiRSSI, &s.TimeSynced, &s.SensorAgeSeconds); err != nil {
+			return nil, err
+		}
+		s.At = time.Unix(at, 0).UTC()
+		samples = append(samples, s)
+	}
+	return samples, rows.Err()
+}
+
+// GetRestarts returns a device's boots since the given time, newest first.
+func (devDB *DeviceDB) GetRestarts(device string, since time.Time) ([]Restart, error) {
+	rows, err := devDB.DB.Query(devDB.Rebind(`SELECT boot_id, occurred_at FROM device_restarts
+		WHERE device_name = ? AND occurred_at >= ? ORDER BY occurred_at DESC, id DESC`), device, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var restarts []Restart
+	for rows.Next() {
+		var r Restart
+		if err := rows.Scan(&r.BootID, &r.OccurredAt); err != nil {
+			return nil, err
+		}
+		restarts = append(restarts, r)
+	}
+	return restarts, rows.Err()
 }

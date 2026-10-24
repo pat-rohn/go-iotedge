@@ -21,6 +21,8 @@ type (
 	DeviceHealthReport      = store.DeviceHealthReport
 	DeviceMonitoringSummary = store.DeviceMonitoringSummary
 	MonitoringSummary       = store.MonitoringSummary
+	HealthSample            = store.HealthSample
+	Restart                 = store.Restart
 )
 
 const (

@@ -30,7 +30,7 @@
     <span>Accepted because <code>Security.IngestAuth</code> is <code>warn</code>. Update these devices before switching to <code>enforce</code>.</span>
     <ul>
         {{range .Data.UnauthenticatedIngest}}
-        <li><code>{{.IP}}</code> — {{.Requests}} requests, last {{.LastSeen.Format "2006-01-02 15:04:05"}}</li>
+        <li><code>{{.IP}}</code> — {{.Requests}} requests, last {{localTime .LastSeen}}</li>
         {{end}}
     </ul>
 </div>
@@ -44,9 +44,9 @@
         <tbody>
             {{range .Data.Attention}}
             <tr>
-                <td><a href="/dashboard/devices#{{.Device}}">{{.Device}}</a></td>
+                <td><a href="/dashboard/devices/{{pathEscape .Device}}">{{.Device}}</a></td>
                 <td><span class="device-status status-{{.Status}}">{{statusName .Status}}</span></td>
-                <td>{{if .LastSeen}}{{.LastSeen.Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+                <td>{{if .LastSeen}}{{localMinute .LastSeen}}{{else}}—{{end}}</td>
                 <td>{{.Restarts}}</td>
             </tr>
             {{end}}
@@ -65,7 +65,7 @@
         <tbody>
             {{range .Data.Problems}}
             <tr class="log-entry level-{{int .Level}}">
-                <td class="timestamp">{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+                <td class="timestamp">{{localTime .Timestamp}}</td>
                 <td>{{.Device}}</td>
                 <td>{{.Text}}</td>
                 <td class="level"><span class="level-badge">{{levelName .Level}}</span></td>

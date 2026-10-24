@@ -1,0 +1,122 @@
+{{define "content"}}
+{{$d := .Data.Device}}
+<p class="breadcrumb"><a href="/dashboard/devices">Devices</a> /</p>
+<div class="section-header">
+    <div class="section-title-area">
+        <h1 class="section-title">{{$d.Name}}</h1>
+        <p class="section-subtitle device-monitoring">
+            <span class="device-status status-{{.Data.Status.Status}}">{{statusName .Data.Status.Status}}</span>
+            {{if .Data.Status.FirmwareVersion}}<span>firmware {{.Data.Status.FirmwareVersion}}</span>{{end}}
+            {{if .Data.Status.LastSeen}}<span>seen {{localMinute .Data.Status.LastSeen}}</span>{{end}}
+            {{if $d.Address}}<a href="{{$d.URL}}" target="_blank" rel="noopener">{{$d.Address}}</a>{{end}}
+        </p>
+    </div>
+</div>
+
+{{with .Data.Latest}}
+<div class="stat-grid" aria-label="Latest health report">
+    <div class="stat-tile"><span class="stat-label">Wi-Fi signal</span><strong>{{if .WiFiRSSI}}{{.WiFiRSSI}} dBm{{else}}—{{end}}</strong></div>
+    <div class="stat-tile"><span class="stat-label">Free heap</span><strong>{{kb .FreeHeapBytes}}</strong></div>
+    <div class="stat-tile"><span class="stat-label">Uptime</span><strong>{{duration .UptimeSeconds}}</strong></div>
+    <div class="stat-tile"><span class="stat-label">Clock</span><strong>{{clockStatus .TimeSynced}}</strong></div>
+    <div class="stat-tile"><span class="stat-label">Restarts ({{$.Data.RestartDays}} d)</span><strong>{{len $.Data.Restarts}}</strong></div>
+</div>
+{{end}}
+
+<h2 class="subsection-title">Health history</h2>
+<nav class="range-presets" aria-label="Time range">
+    {{range .Data.Ranges}}
+    <a href="?range={{.Key}}" class="range-preset"{{if eq .Key $.Data.Range}} aria-current="true"{{end}}>{{.Label}}</a>
+    {{end}}
+</nav>
+{{if .Data.Samples}}
+<div class="chart-grid" id="health-charts" data-source="health-data"></div>
+<script type="application/json" id="health-data">{{dict "Charts" .Data.Charts}}</script>
+<script src="/static/js/charts.js" defer></script>
+{{else}}
+<div class="card"><p class="empty-state">No health reports in this range.</p></div>
+{{end}}
+
+<h2 class="subsection-title">Settings</h2>
+<p class="section-note">The device applies these the next time it registers (usually at its next start).</p>
+{{template "device-settings" .Data}}
+
+{{if $d.Sensors}}
+<h2 class="subsection-title">Sensors</h2>
+<div class="card">
+    <table class="data-table">
+        <thead><tr><th>Sensor</th><th>Offset</th><th></th></tr></thead>
+        <tbody>
+            {{range $d.Sensors}}{{template "sensor-row" (dict "Device" $d "Sensor" .)}}{{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+<h2 class="subsection-title">Restarts in the last {{.Data.RestartDays}} days</h2>
+<div class="card">
+    {{if .Data.Restarts}}
+    <table class="data-table">
+        <thead><tr><th>Started</th><th>Boot ID</th></tr></thead>
+        <tbody>
+            {{range .Data.Restarts}}
+            <tr><td class="timestamp">{{localTime .OccurredAt}}</td><td><code>{{.BootID}}</code></td></tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="empty-state">No restarts.</p>
+    {{end}}
+</div>
+
+<h2 class="subsection-title">Latest log messages</h2>
+<div class="card">
+    {{if .Data.Logs}}
+    <table class="data-table">
+        <thead><tr><th>Timestamp</th><th>Message</th><th>Level</th></tr></thead>
+        <tbody>
+            {{range .Data.Logs}}
+            <tr class="log-entry level-{{int .Level}}">
+                <td class="timestamp">{{localTime .Timestamp}}</td>
+                <td>{{.Text}}</td>
+                <td class="level"><span class="level-badge">{{levelName .Level}}</span></td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    <p class="card-footer"><a href="/dashboard/logs?log_device={{$d.Name}}">All log messages</a></p>
+    {{else}}
+    <p class="empty-state">No log messages.</p>
+    {{end}}
+</div>
+{{end}}
+
+{{define "device-settings"}}
+<form class="card settings-form" hx-put="/dashboard/devices/{{pathEscape .Device.Name}}" hx-swap="outerHTML">
+    <label class="form-field">Measurement interval (s)
+        <input name="Interval" type="number" min="1" step="any" value="{{.Device.Interval}}" required />
+    </label>
+    <label class="form-field">Readings buffered before sending
+        <input name="Buffer" type="number" min="1" step="1" value="{{.Device.Buffer}}" required />
+    </label>
+    <button class="btn-save" type="submit">Save</button>
+    {{if .Saved}}<span class="form-status" role="status">Saved</span>{{end}}
+    {{if .Error}}<span class="form-error" role="alert">{{.Error}}</span>{{end}}
+</form>
+{{end}}
+
+{{define "sensor-row"}}
+<tr>
+    <td class="sensor-name">{{.Sensor.Name}}</td>
+    <td>
+        <form class="inline-form" id="offset-{{.Sensor.ID}}" hx-put="/dashboard/devices/{{pathEscape .Device.Name}}/sensors/{{pathEscape .Sensor.Name}}" hx-target="closest tr" hx-swap="outerHTML">
+            <input name="SensorOffset" type="number" step="any" value="{{.Sensor.SensorOffset}}" aria-label="Offset for {{.Sensor.Name}}" />
+        </form>
+    </td>
+    <td>
+        <button class="btn-secondary" type="submit" form="offset-{{.Sensor.ID}}">Save</button>
+        {{if .Saved}}<span class="form-status" role="status">Saved</span>{{end}}
+        {{if .Error}}<span class="form-error" role="alert">{{.Error}}</span>{{end}}
+    </td>
+</tr>
+{{end}}

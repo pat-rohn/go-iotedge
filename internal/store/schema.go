@@ -24,6 +24,34 @@ const ForwardOutboxTable = "forward_outbox"
 // library, not here.
 var migrations = []migration{
 	{1, "baseline", baselineSchema},
+	{2, "device health history", healthHistorySchema},
+}
+
+// healthHistorySchema keeps every health report (pruned by age) for the
+// device page's charts; device_health holds only the latest.
+func healthHistorySchema(tx *sql.Tx, postgres bool) error {
+	id := "id INTEGER PRIMARY KEY AUTOINCREMENT"
+	if postgres {
+		id = "id BIGSERIAL PRIMARY KEY"
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS device_health_history (
+			` + id + `,
+			device_name TEXT NOT NULL,
+			recorded_at BIGINT NOT NULL,
+			uptime_seconds BIGINT,
+			free_heap_bytes BIGINT,
+			wifi_rssi INTEGER,
+			time_synced BOOLEAN,
+			sensor_age_seconds BIGINT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_health_history_device_time ON device_health_history(device_name, recorded_at)`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Migrate applies the steps the database has not seen yet.

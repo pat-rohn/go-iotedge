@@ -30,7 +30,7 @@
         <tbody>
             {{range .Data.Logs}}
             <tr class="log-entry level-{{int .Level}}">
-                <td class="timestamp">{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+                <td class="timestamp">{{localTime .Timestamp}}</td>
                 <td>{{.Device}}</td>
                 <td>{{.Text}}</td>
                 <td class="level"><span class="level-badge">{{levelName .Level}}</span></td>
