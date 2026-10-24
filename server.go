@@ -215,6 +215,7 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	if err := s.initIngestAuth(); err != nil {
 		return nil, err
 	}
+	s.loginLimiter = newLoginLimiter()
 	staticServer := http.FileServer(http.FS(staticFS))
 
 	sessionSecret := s.IoTConfig.SessionSecret

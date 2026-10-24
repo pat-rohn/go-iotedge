@@ -160,7 +160,14 @@ func (w *IoTEdge) performLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 		return
 	}
+	ip := c.ClientIP()
+	if wait := w.loginLimiter.retryAfter(ip); wait > 0 {
+		c.Header("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		c.String(http.StatusTooManyRequests, fmt.Sprintf("Too many failed logins. Try again in %d s.", int(wait.Seconds())+1))
+		return
+	}
 	if subtle.ConstantTimeCompare([]byte(loginReq.Password), []byte(w.password)) == 1 {
+		w.loginLimiter.succeeded(ip)
 		session := sessions.Default(c)
 		session.Set("user", "any")
 		if err := session.Save(); err != nil {
@@ -170,6 +177,7 @@ func (w *IoTEdge) performLogin(c *gin.Context) {
 		}
 		c.Redirect(http.StatusFound, "/dashboard")
 	} else {
+		w.loginLimiter.failed(ip)
 		c.String(http.StatusUnauthorized, "Incorrect credentials")
 	}
 	slog.Info("login attempt", logFields...)

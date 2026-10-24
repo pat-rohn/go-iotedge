@@ -21,6 +21,8 @@ type IoTEdge struct {
 	// status is what the system page reads from the running parts; shared
 	// by copies of the IoTEdge value.
 	status *serverStatus
+	// loginLimiter slows down password guessing; set by newRouter.
+	loginLimiter *loginLimiter
 }
 
 const (

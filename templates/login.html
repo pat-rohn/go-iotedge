@@ -65,6 +65,8 @@
                         });
                         if (res.ok) {
                             window.location.href = "/dashboard";
+                        } else if (res.status === 429) {
+                            errEl.textContent = await res.text();
                         } else {
                             errEl.textContent =
                                 "Incorrect password — please try again.";
