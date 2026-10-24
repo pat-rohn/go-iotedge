@@ -284,6 +284,8 @@ func (s *IoTEdge) newRouter() (*gin.Engine, error) {
 	router.GET(URIDashboard+"/devices", s.AuthenticationHandler, s.devicesPage)
 	router.GET(URIDashboard+"/logs", s.AuthenticationHandler, s.logsPage)
 	router.GET(URIDashboard+"/events", s.AuthenticationHandler, s.overviewEvents)
+	router.GET(URIDashboard+"/measurements", s.AuthenticationHandler, s.measurementsPage)
+	router.GET(URIDashboard+"/measurements.csv", s.AuthenticationHandler, s.measurementsCSV)
 	router.GET(URIDashboard+"/devices/:name", s.AuthenticationHandler, s.devicePage)
 	router.PUT(URIDashboard+"/devices/:name", s.AuthenticationHandler, s.csrfProtect, s.updateDeviceSettings)
 	router.PUT(URIDashboard+"/devices/:name/sensors/:sensor", s.AuthenticationHandler, s.csrfProtect, s.updateSensorOffset)

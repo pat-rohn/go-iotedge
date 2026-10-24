@@ -1,0 +1,47 @@
+{{define "content"}}
+<div class="section-header">
+    <div class="section-title-area">
+        <h1 class="section-title">Measurements</h1>
+        <p class="section-subtitle">A quick look at one tag. Grafana remains the tool for dashboards.</p>
+    </div>
+</div>
+
+<form class="log-filters" method="get" action="/dashboard/measurements">
+    <label>
+        Tag
+        <select name="tag" onchange="this.form.submit()">
+            <option value="">Pick a tag…</option>
+            {{range .Data.Tags}}
+            <option value="{{.}}"{{if eq . $.Data.Tag}} selected{{end}}>{{.}}</option>
+            {{end}}
+        </select>
+    </label>
+    <input type="hidden" name="range" value="{{.Data.Range}}" />
+    <noscript><button class="btn-refresh" type="submit">Show</button></noscript>
+</form>
+
+{{if not .Data.Tag}}
+<div class="card"><p class="empty-state">Pick a tag to see its readings.</p></div>
+{{else}}
+<nav class="range-presets" aria-label="Time range">
+    {{range .Data.Ranges}}
+    <a href="?tag={{$.Data.Tag}}&amp;range={{.Key}}" class="range-preset"{{if eq .Key $.Data.Range}} aria-current="true"{{end}}>{{.Label}}</a>
+    {{end}}
+    <a class="range-preset export-link" href="{{.Data.CSV}}" download>Export CSV</a>
+</nav>
+{{with .Data.Stats}}
+<div class="stat-grid" aria-label="Summary of the range">
+    <div class="stat-tile"><span class="stat-label">Latest</span><strong>{{.Latest}}</strong></div>
+    <div class="stat-tile"><span class="stat-label">Min</span><strong>{{.Min}}</strong></div>
+    <div class="stat-tile"><span class="stat-label">Max</span><strong>{{.Max}}</strong></div>
+    <div class="stat-tile"><span class="stat-label">Average</span><strong>{{.Average}}</strong></div>
+    <div class="stat-tile"><span class="stat-label">Readings</span><strong>{{.Count}}</strong></div>
+</div>
+<div class="chart-grid chart-grid-wide" id="measurement-charts" data-source="measurement-data"></div>
+<script type="application/json" id="measurement-data">{{dict "Charts" $.Data.Charts}}</script>
+<script src="/static/js/charts.js" defer></script>
+{{else}}
+<div class="card"><p class="empty-state">No readings for {{.Data.Tag}} in this range.</p></div>
+{{end}}
+{{end}}
+{{end}}

@@ -27,6 +27,7 @@ type navPage struct {
 var dashboardNav = []navPage{
 	{URIDashboard, "Overview", `<path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/>`},
 	{URIDashboard + "/devices", "Devices", `<rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 7V5M12 7V5M15 7V5M9 19v-2M12 19v-2M15 19v-2M7 9H5M7 12H5M7 15H5M19 9h-2M19 12h-2M19 15h-2"/>`},
+	{URIDashboard + "/measurements", "Measurements", `<path d="M4 19h16"/><path d="M5 15l4-5 4 3 6-7"/>`},
 	{URIDashboard + "/logs", "Logs", `<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/>`},
 }
 
@@ -111,7 +112,7 @@ var (
 func pageTemplate(name string) *template.Template {
 	pageTemplatesOnce.Do(func() {
 		pageTemplates = map[string]*template.Template{}
-		for _, page := range []string{"overview.html", "devices.html", "logs.html", "device.html", "notfound.html"} {
+		for _, page := range []string{"overview.html", "devices.html", "logs.html", "device.html", "notfound.html", "measurements.html"} {
 			pageTemplates[page] = template.Must(template.New(page).Funcs(templateFuncs).
 				ParseFS(templatesFS, "templates/layout.html", "templates/pages/"+page))
 		}

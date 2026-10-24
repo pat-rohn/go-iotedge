@@ -1181,3 +1181,11 @@ button {
     color: var(--c-accent-dark);
     text-decoration: underline;
 }
+
+.chart-grid-wide {
+    grid-template-columns: 1fr;
+}
+
+.export-link {
+    margin-left: auto;
+}

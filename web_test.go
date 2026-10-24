@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 )
 
-var webPages = []string{"/dashboard", "/dashboard/devices", "/dashboard/logs"}
+var webPages = []string{"/dashboard", "/dashboard/devices", "/dashboard/logs", "/dashboard/measurements"}
 
 func TestWebPagesNeedLogin(t *testing.T) {
 	_, router := securityRouter(t, SecurityConfig{})
