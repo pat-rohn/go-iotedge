@@ -1,14 +1,11 @@
 package iotedge
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"runtime"
 	"strconv"
@@ -317,6 +314,11 @@ func (s *IoTEdge) StartMQTTBroker(ctx context.Context) error {
 		log.WithFields(logFields).Warnf("UploadInterval %d is not positive, using 30 s", config.UploadInterval)
 		interval = 30 * time.Second
 	}
+	var fwd *forwarder
+	if forwarding := config.forwarding(); forwarding.URL != "" {
+		fwd = newForwarder(s.DeviceDB, forwarding)
+		log.WithFields(logFields).Infof("Forwarding MQTT readings to %s", forwarding.URL)
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -326,17 +328,21 @@ func (s *IoTEdge) StartMQTTBroker(ctx context.Context) error {
 			if err := broker.Close(); err != nil {
 				log.WithFields(logFields).Warnf("Closing MQTT broker: %v", err)
 			}
-			s.storeMQTTData(broker.handler, time.Now().Add(mqttShutdownBudget), false)
+			// Forwarded readings go to the outbox; the next start delivers them.
+			s.storeMQTTData(broker.handler, time.Now().Add(mqttShutdownBudget), fwd)
 			return nil
 		case <-ticker.C:
-			s.storeMQTTData(broker.handler, time.Now().Add(interval), true)
+			s.storeMQTTData(broker.handler, time.Now().Add(interval), fwd)
+			if fwd != nil {
+				fwd.deliverInBackground(ctx)
+			}
 		}
 	}
 }
 
-// storeMQTTData writes (or forwards) the buffered readings; inserts must
-// finish before deadline.
-func (s *IoTEdge) storeMQTTData(handler *TimeseriesHandler, deadline time.Time, forwardAsync bool) {
+// storeMQTTData stores the buffered readings, or queues them for fwd when
+// forwarding is configured; inserts must finish before deadline.
+func (s *IoTEdge) storeMQTTData(handler *TimeseriesHandler, deadline time.Time, fwd *forwarder) {
 	logFields := log.Fields{"tech": "mqtt", "fnct": "storeMQTTData"}
 	config := s.IoTConfig
 	data, err := handler.getAndClearData()
@@ -348,12 +354,9 @@ func (s *IoTEdge) storeMQTTData(handler *TimeseriesHandler, deadline time.Time, 
 		return
 	}
 	log.WithFields(logFields).Debugf("Got data %d", len(data))
-	if len(config.MQTTRedirectAddress) > 0 {
-		log.WithFields(logFields).Debugf("Redirect data to %s", config.MQTTRedirectAddress)
-		if forwardAsync {
-			go sendData(&data, config.MQTTRedirectAddress)
-		} else if err := sendData(&data, config.MQTTRedirectAddress); err != nil {
-			log.WithFields(logFields).Errorf("Failed to forward MQTT data: %v", err)
+	if fwd != nil {
+		if err := fwd.enqueue(data); err != nil {
+			log.WithFields(logFields).Errorf("Failed to queue MQTT data for forwarding: %v", err)
 		}
 		return
 	}
@@ -392,29 +395,5 @@ func insertData(dbh *timeseries.DbHandler, data []timeseries.TimeseriesImportStr
 	if failed > 0 {
 		return fmt.Errorf("failed to insert %d/%d series", failed, len(data))
 	}
-	return nil
-}
-
-func sendData(data *[]timeseries.TimeseriesImportStruct, url string) error {
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-	client := http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(url+URISaveTimeseries, "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		log.Errorf("Failed to send data: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		log.Errorf("Failed with status: %s", resp.Status)
-		return fmt.Errorf("failed with status: %s", resp.Status)
-	}
-	respStr, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error(err)
-	}
-	log.Info(string(respStr))
 	return nil
 }

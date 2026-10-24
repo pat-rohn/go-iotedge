@@ -56,6 +56,27 @@ setup keeps working unchanged.
 - `LogPersistLevel`: lowest server log level stored in the `logs` table
   (default `warning`). Device logs from `/api/log` are always stored.
 
+## Forwarding
+
+An edge server can pass its MQTT readings on to a central go-iotedge instead
+of storing them locally:
+
+```json
+{
+  "Forwarding": {
+    "URL": "http://central:3004",
+    "Token": "<the central server's Security.IngestToken>"
+  }
+}
+```
+
+Readings are queued in the local `forward_outbox` table and sent in order to
+`<URL>/timeseries/save` every `UploadInterval` seconds. A batch leaves the
+queue only once the central server accepted it, so readings survive outages
+and restarts; after a failure the forwarder waits 10 s, doubling up to 1 h.
+HTTP ingest is not forwarded. The old `MQTTRedirectAddress` still works as
+`Forwarding.URL` (without a token) and logs a deprecation warning.
+
 ## Timeseries
 Check out [this](https://github.com/pat-rohn/timeseries) for how to set-up a postgres-database. Example query for Grafana:
 ```SQL
