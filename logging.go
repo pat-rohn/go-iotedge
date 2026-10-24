@@ -96,32 +96,10 @@ func GetLoggingDB(config timeseries.DBConfig) *LoggingDB {
 	logger := log.WithFields(log.Fields{"fnct": "GetLoggingDB", "name": config.Name})
 	onceLoggingDB.Do(func() {
 		logger.Infoln("init")
-		if dbhandler == nil {
-			dbhandler = timeseries.DBHandler(config)
-		}
+		// GetDeviceDB opens the shared handler and migrates the schema,
+		// including the logs table.
 		loggingDB = &LoggingDB{conf: config}
-		loggingDB.DbHandler = dbhandler
-
-		var idStr string
-		timeStampStr := "DATETIME DEFAULT (datetime('subsec'))"
-		if config.UsePostgres {
-			idStr = "id SERIAL PRIMARY KEY"
-			timeStampStr = "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"
-		} else {
-			idStr = "id INTEGER PRIMARY KEY AUTOINCREMENT"
-		}
-		sqlStr := `CREATE TABLE IF NOT EXISTS logs (
-			` + idStr + ` ,
-			timestamp ` + timeStampStr + ` ,
-			device TEXT NOT NULL,
-			text TEXT DEFAULT '',
-			level INTEGER DEFAULT 2
-);`
-		logger.Infoln(sqlStr)
-		if err := loggingDB.Execute(sqlStr); err != nil {
-			logger.Fatalf("failed to create logging table:%v", err)
-		}
-		loggingDB.migrateLogsTable()
+		loggingDB.DbHandler = GetDeviceDB(config).DbHandler
 		loggingHookOnce.Do(func() {
 			log.AddHook(&databaseLogHook{db: loggingDB})
 		})
@@ -131,72 +109,6 @@ func GetLoggingDB(config timeseries.DBConfig) *LoggingDB {
 		logger.Fatalf("Config must not change %+v to %+v", deviceDB.conf, config)
 	}
 	return loggingDB
-}
-
-// migrateLogsTable adds the auto-increment `id` primary key to an existing logs
-// table that was created under the old schema (PRIMARY KEY (timestamp, device)).
-func (l *LoggingDB) migrateLogsTable() {
-	logger := log.WithFields(log.Fields{"fnct": "migrateLogsTable"})
-
-	if l.conf.UsePostgres {
-		// ALTER TABLE … ADD COLUMN IF NOT EXISTS is idempotent on Postgres 9.6+.
-		if err := l.Execute(`ALTER TABLE logs ADD COLUMN IF NOT EXISTS id SERIAL`); err != nil {
-			logger.Warnf("Postgres logs migration may need DBA attention: %v", err)
-		}
-		return
-	}
-
-	// SQLite: check whether the 'id' column already exists.
-	// Close the cursor before issuing any DDL so we don't hold a read lock
-	// that would cause SQLITE_BUSY on ALTER TABLE.
-	var count int
-	{
-		rows, err := l.ExecuteQuery(`SELECT COUNT(*) FROM pragma_table_info('logs') WHERE name='id'`)
-		if err != nil {
-			logger.Warnf("failed to check logs table schema: %v", err)
-			return
-		}
-		if rows.Next() {
-			if err := rows.Scan(&count); err != nil {
-				rows.Close()
-				logger.Warnf("failed to scan pragma result: %v", err)
-				return
-			}
-		}
-		rowsErr := rows.Err()
-		rows.Close() // close before any DDL
-		if rowsErr != nil {
-			logger.Warnf("rows error during schema check: %v", rowsErr)
-			return
-		}
-	}
-
-	if count > 0 {
-		return // 'id' column already exists — nothing to do
-	}
-
-	// Old schema detected: rename, recreate, copy, drop.
-	logger.Warn("Old logs table schema detected (no id column) — performing migration")
-	steps := []string{
-		`ALTER TABLE logs RENAME TO logs_old`,
-		`CREATE TABLE logs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp DATETIME DEFAULT (datetime('subsec')),
-			device TEXT NOT NULL,
-			text TEXT DEFAULT '',
-			level INTEGER DEFAULT 2
-		)`,
-		`INSERT INTO logs (timestamp, device, text, level)
-		 SELECT timestamp, device, text, level FROM logs_old`,
-		`DROP TABLE logs_old`,
-	}
-	for _, step := range steps {
-		if err := l.Execute(step); err != nil {
-			logger.Errorf("migration step failed (%v): %s", err, step)
-			return
-		}
-	}
-	logger.Info("Logs table migration complete")
 }
 
 func (s *IoTEdge) LogMessage(msg LogMessage) error {

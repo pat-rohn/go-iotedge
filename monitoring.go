@@ -67,42 +67,6 @@ func (c MonitoringConfig) validate() error {
 	return nil
 }
 
-func (devDB *DeviceDB) InitializeMonitoring() error {
-	timestampType := "DATETIME"
-	idType := "INTEGER PRIMARY KEY AUTOINCREMENT"
-	if devDB.conf.UsePostgres {
-		timestampType = "TIMESTAMP WITH TIME ZONE"
-		idType = "BIGSERIAL PRIMARY KEY"
-	}
-
-	statements := []string{
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS device_health (
-			device_name TEXT PRIMARY KEY,
-			last_seen %s NOT NULL,
-			firmware_version TEXT NOT NULL DEFAULT '',
-			uptime_seconds BIGINT,
-			free_heap_bytes BIGINT,
-			wifi_rssi INTEGER,
-			time_synced BOOLEAN,
-			sensor_age_seconds BIGINT
-		)`, timestampType),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS device_restarts (
-			id %s,
-			device_name TEXT NOT NULL,
-			boot_id TEXT NOT NULL,
-			occurred_at %s NOT NULL,
-			UNIQUE (device_name, boot_id)
-		)`, idType, timestampType),
-		`CREATE INDEX IF NOT EXISTS idx_device_restarts_device_time ON device_restarts(device_name, occurred_at)`,
-	}
-	for _, statement := range statements {
-		if _, err := devDB.DB.Exec(statement); err != nil {
-			return fmt.Errorf("initialize monitoring schema: %w", err)
-		}
-	}
-	return nil
-}
-
 func validateHealthReport(report DeviceHealthReport) error {
 	if strings.TrimSpace(report.Device) == "" {
 		return fmt.Errorf("device is required")

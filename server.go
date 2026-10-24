@@ -84,14 +84,8 @@ func New(iotConfig IoTConfig) IoTEdge {
 	if err := s.IoTConfig.Monitoring.validate(); err != nil {
 		log.Fatalf("invalid monitoring configuration: %v", err)
 	}
-	if err := s.DeviceDB.InitializeMonitoring(); err != nil {
-		log.Fatalf("failed to initialize monitoring tables: %v", err)
-	}
 	if err := s.initIngestAuth(); err != nil {
 		log.Fatalf("invalid security configuration: %v", err)
-	}
-	if err := s.DeviceDB.initializeForwarding(); err != nil {
-		log.Fatalf("failed to create forwarding outbox: %v", err)
 	}
 	if s.IoTConfig.MQTTRedirectAddress != "" && s.IoTConfig.Forwarding.URL == "" {
 		log.Warn("MQTTRedirectAddress is deprecated; set Forwarding.URL (and Forwarding.Token) instead")

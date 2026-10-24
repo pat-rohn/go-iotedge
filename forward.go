@@ -79,22 +79,6 @@ func newForwarder(db *DeviceDB, cfg ForwardingConfig) *forwarder {
 	}
 }
 
-// initializeForwarding creates the outbox table.
-func (devDB *DeviceDB) initializeForwarding() error {
-	id := "id INTEGER PRIMARY KEY AUTOINCREMENT"
-	if devDB.conf.UsePostgres {
-		id = "id BIGSERIAL PRIMARY KEY"
-	}
-	_, err := devDB.DB.Exec(`CREATE TABLE IF NOT EXISTS ` + forwardOutboxTable + ` (
-		` + id + `,
-		created_at BIGINT NOT NULL,
-		payload TEXT NOT NULL,
-		attempts INTEGER NOT NULL DEFAULT 0,
-		next_attempt_at BIGINT NOT NULL
-	)`)
-	return err
-}
-
 // enqueue stores one batch for delivery.
 func (f *forwarder) enqueue(data []timeseries.TimeseriesImportStruct) error {
 	if len(data) == 0 {

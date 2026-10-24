@@ -68,40 +68,8 @@ func GetDeviceDB(config timeseries.DBConfig) *DeviceDB {
 			deviceDB = &DeviceDB{conf: config}
 		}
 		deviceDB.DbHandler = dbhandler
-		var idStr, numericType string
-		if config.UsePostgres {
-			idStr = "id SERIAL PRIMARY KEY"
-			numericType = "NUMERIC"
-		} else {
-			idStr = "id INTEGER PRIMARY KEY AUTOINCREMENT"
-			numericType = "NUMBER"
-		}
-		sqlStr := `CREATE TABLE IF NOT EXISTS devices (
-			` + idStr + ` ,
-			name        TEXT NOT NULL UNIQUE,
-			description TEXT DEFAULT '',
-			intervall	 ` + numericType + ` DEFAULT 60,
-			buffer 		INTEGER DEFAULT 2
-		   );`
-		if err := deviceDB.Execute(sqlStr); err != nil {
-			logger.Fatalf("failed to create devices table:%v", err)
-		}
-		sqlStr = `CREATE TABLE IF NOT EXISTS sensors (
-		` + idStr + ` ,
-		deviceid        INTEGER NOT NULL,
-		name            TEXT NOT NULL,
-		description     TEXT DEFAULT '',
-		sensor_offset   ` + numericType + ` DEFAULT 0,
-		UNIQUE (deviceid, name)
-		   );`
-		if err := deviceDB.Execute(sqlStr); err != nil {
-			logger.Fatalf("failed to create sensors table:%v", err)
-		}
-		if err := deviceDB.Execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sensors_unique ON sensors(deviceid, name)"); err != nil {
-			logger.Warnf("idx_sensors_unique: %v", err)
-		}
-		if err := deviceDB.addDeviceAddressColumns(); err != nil {
-			logger.Fatalf("failed to add device address columns: %v", err)
+		if err := deviceDB.migrate(); err != nil {
+			logger.Fatalf("failed to migrate database schema: %v", err)
 		}
 		deviceDBReady = true
 	}
@@ -150,37 +118,6 @@ func compareConfigs(oldConf, newConf timeseries.DBConfig) bool {
 		return false
 	}
 	return true
-}
-
-// addDeviceAddressColumns adds devices.address (the IP a device last talked
-// from) and address_seen_at to databases created before they existed.
-func (devDB *DeviceDB) addDeviceAddressColumns() error {
-	timestampType := "DATETIME"
-	if devDB.conf.UsePostgres {
-		timestampType = "TIMESTAMP WITH TIME ZONE"
-	}
-	columns := []struct{ name, definition string }{
-		{"address", "TEXT NOT NULL DEFAULT ''"},
-		{"address_seen_at", timestampType},
-	}
-	for _, column := range columns {
-		if devDB.conf.UsePostgres {
-			if _, err := devDB.DB.Exec(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ` + column.name + ` ` + column.definition); err != nil {
-				return err
-			}
-			continue
-		}
-		var count int
-		if err := devDB.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = ?`, column.name).Scan(&count); err != nil {
-			return err
-		}
-		if count == 0 {
-			if _, err := devDB.DB.Exec(`ALTER TABLE devices ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // RecordDeviceAddress stores the address a device request came from.
