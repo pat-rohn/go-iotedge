@@ -25,6 +25,23 @@ const ForwardOutboxTable = "forward_outbox"
 var migrations = []migration{
 	{1, "baseline", baselineSchema},
 	{2, "device health history", healthHistorySchema},
+	{3, "logs indexes", logsIndexSchema},
+}
+
+// logsIndexSchema lets the log pages read the newest rows instead of sorting
+// the whole table, which held the database lock long enough for ingest to
+// time out.
+func logsIndexSchema(tx *sql.Tx, postgres bool) error {
+	for _, stmt := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_logs_time ON logs(timestamp, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_device_time ON logs(device, timestamp, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_level_time ON logs(level, timestamp, id)`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // healthHistorySchema keeps every health report (pruned by age) for the

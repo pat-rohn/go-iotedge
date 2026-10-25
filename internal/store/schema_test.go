@@ -6,6 +6,7 @@ package store
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pat-rohn/timeseries"
@@ -107,5 +108,30 @@ func TestMigrateUpgradesLegacySQLiteSchema(t *testing.T) {
 	}
 	if err := db.QueryRow(`SELECT description FROM devices WHERE name = 'old-device'`).Scan(&description); err != nil || description != "192.0.2.1" {
 		t.Errorf("legacy device row: %q, %v", description, err)
+	}
+}
+
+// The log pages must read the newest rows by index, not sort the whole table.
+func TestLogQueriesUseIndex(t *testing.T) {
+	db := openTestDB(t)
+	for _, where := range []string{"", ` WHERE device = 'x'`, ` WHERE level = 3`} {
+		rows, err := db.DB.Query(`EXPLAIN QUERY PLAN SELECT timestamp, device, text, level FROM logs` +
+			where + ` ORDER BY timestamp DESC, id DESC LIMIT 100`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var plan string
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			plan += detail + "; "
+		}
+		rows.Close()
+		if !strings.Contains(plan, "USING INDEX idx_logs_") || strings.Contains(plan, "TEMP B-TREE") {
+			t.Errorf("query%s plan = %q, want an idx_logs_ index without a sort", where, plan)
+		}
 	}
 }
