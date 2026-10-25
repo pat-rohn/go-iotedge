@@ -1,0 +1,38 @@
+[Unit]
+Description=go-iotedge IoT server (HTTP 3004, MQTT 1883)
+Documentation=https://github.com/pat-rohn/go-iotedge
+Wants=network-online.target
+After=network-online.target
+# With Postgres on the same host, add: After=postgresql.service
+
+[Service]
+Type=simple
+User=iotserver
+Group=iotserver
+# GetConfig reads $HOME/.iotserver/iot.json; a SQLite database with the
+# default IPOrPath "./" lives in the working directory.
+Environment=HOME=/var/lib/iotserver
+StateDirectory=iotserver
+WorkingDirectory=/var/lib/iotserver
+ExecStart=/usr/bin/IoTServer start
+Restart=on-failure
+RestartSec=5
+# SIGTERM stops HTTP and MQTT and stores buffered MQTT readings first.
+TimeoutStopSec=30
+
+# Hardening: the server only needs its state directory and the network.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/iotserver
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

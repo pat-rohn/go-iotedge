@@ -2,7 +2,7 @@
 <div class="section-header">
     <div class="section-title-area">
         <h1 class="section-title">System</h1>
-        <p class="section-subtitle">Version {{shortHash .Data.Build.Commit}}{{with .Data.Uptime}} · up {{.}}{{end}}</p>
+        <p class="section-subtitle">Version {{or .Data.Build.Version (shortHash .Data.Build.Commit)}}{{with .Data.Uptime}} · up {{.}}{{end}}</p>
     </div>
 </div>
 
@@ -19,6 +19,7 @@
     <section class="card system-card">
         <h2 class="subsection-title">Server</h2>
         <dl>
+            <dt>Version</dt><dd>{{or .Data.Build.Version "development build"}}</dd>
             <dt>Commit</dt><dd><code title="{{.Data.Build.Commit}}">{{shortHash .Data.Build.Commit}}</code></dd>
             <dt>Built</dt><dd>{{.Data.Build.Date}}</dd>
             <dt>Up for</dt><dd>{{or .Data.Uptime "—"}}</dd>

@@ -22,6 +22,42 @@ values with linker flags:
 go build -ldflags "-X github.com/pat-rohn/go-iotedge.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X github.com/pat-rohn/go-iotedge.commitHash=$(git rev-parse HEAD)" ./cmd/IoTServer
 ```
 
+## Install and run as a service
+
+Release builds come from [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`):
+a `.deb` and a `.tar.gz` for linux amd64, arm64 and armv7, with the version,
+build date and commit stamped into the binary (`GET /version`, System page).
+
+On a Debian-based host (e.g. the ARMv7 box):
+
+```sh
+sudo apt install ./iotserver_<version>_armv7.deb
+sudoedit /var/lib/iotserver/.iotserver/iot.json   # Password, SessionSecret, DBConfig, Security
+sudo chown iotserver: /var/lib/iotserver/.iotserver/iot.json
+sudo systemctl start iotserver
+journalctl -u iotserver -f
+```
+
+The package installs `/usr/bin/IoTServer` and the systemd unit
+`iotserver.service` (from `packaging/systemd/`), creates the `iotserver` user
+and enables the service without starting it, so it never runs with the
+default password. Config and a SQLite database live in `/var/lib/iotserver`.
+Stopping the service (SIGTERM) stores buffered MQTT readings first. Without
+the package, copy the binary and the unit by hand; the unit expects the same
+user and paths.
+
+Making a release (needs a git tag):
+
+```sh
+git tag v1.2.0
+goreleaser release --clean              # draft release on GitHub
+goreleaser release --snapshot --clean   # local build into dist/, nothing published
+```
+
+`go.mod` builds against the sibling checkout `../timeseries` (`replace`
+directive), so release from this workspace, or push and tag `timeseries` and
+drop the `replace` first.
+
 ## Dashboard
 
 Log in at `/` with `Password`. Pages, all served from the binary (no

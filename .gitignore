@@ -16,3 +16,4 @@ cmd/IoTServer/iot.db
 cmd/IoTServer/iot.db-shm
 cmd/IoTServer/iot.db-wal
 .github/skills/*
+dist/

@@ -2,20 +2,26 @@ package iotedge
 
 import "runtime/debug"
 
+// Set at build time with -ldflags "-X github.com/pat-rohn/go-iotedge.<name>=..."
+// (GoReleaser does this for releases).
 var (
-	buildDate  = "unknown"
-	commitHash = "unknown"
+	buildVersion = ""
+	buildDate    = "unknown"
+	commitHash   = "unknown"
 )
 
 type VersionInfo struct {
-	Date   string `json:"date"`
-	Commit string `json:"commit"`
+	// Version is the release tag, empty for builds outside a release.
+	Version string `json:"version,omitempty"`
+	Date    string `json:"date"`
+	Commit  string `json:"commit"`
 }
 
 func CurrentVersion() VersionInfo {
 	version := VersionInfo{
-		Date:   buildDate,
-		Commit: commitHash,
+		Version: buildVersion,
+		Date:    buildDate,
+		Commit:  commitHash,
 	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok {

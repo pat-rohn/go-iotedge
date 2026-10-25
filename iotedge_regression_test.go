@@ -506,10 +506,10 @@ func TestRegressionDashboardJSONIncludesDevices(t *testing.T) {
 }
 
 func TestRegressionVersionEndpointReturnsBuildMetadata(t *testing.T) {
-	originalBuildDate, originalCommitHash := buildDate, commitHash
-	buildDate, commitHash = "2026-10-17T15:00:00Z", "fcee057af9844264c6c35a6260b5dcc5e0da31e2"
+	originalBuildDate, originalCommitHash, originalVersion := buildDate, commitHash, buildVersion
+	buildDate, commitHash, buildVersion = "2026-10-17T15:00:00Z", "fcee057af9844264c6c35a6260b5dcc5e0da31e2", "1.2.0"
 	t.Cleanup(func() {
-		buildDate, commitHash = originalBuildDate, originalCommitHash
+		buildDate, commitHash, buildVersion = originalBuildDate, originalCommitHash, originalVersion
 	})
 
 	iot := regressionIoT()
@@ -526,8 +526,8 @@ func TestRegressionVersionEndpointReturnsBuildMetadata(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&version); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if version.Date != buildDate || version.Commit != commitHash {
-		t.Errorf("version = %+v, want date %q and commit %q", version, buildDate, commitHash)
+	if version.Date != buildDate || version.Commit != commitHash || version.Version != "1.2.0" {
+		t.Errorf("version = %+v, want version 1.2.0, date %q and commit %q", version, buildDate, commitHash)
 	}
 }
 

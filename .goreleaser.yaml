@@ -1,0 +1,64 @@
+# Release builds: `git tag vX.Y.Z && goreleaser release --clean`.
+# Local try-out without publishing: `goreleaser release --snapshot --clean`.
+version: 2
+project_name: iotserver
+
+builds:
+  - id: iotserver
+    main: ./cmd/IoTServer
+    binary: IoTServer
+    env:
+      - CGO_ENABLED=0 # SQLite is pure Go (modernc), so cross-compiling needs no C toolchain
+    goos: [linux]
+    goarch: [amd64, arm64, arm]
+    goarm: ["7"] # the ARMv7 edge box
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/pat-rohn/go-iotedge.buildVersion={{ .Version }}
+      - -X github.com/pat-rohn/go-iotedge.buildDate={{ .Date }}
+      - -X github.com/pat-rohn/go-iotedge.commitHash={{ .FullCommit }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    files:
+      - README.md
+      - LICENSE
+      - openapi.yaml
+      - packaging/systemd/iotserver.service
+
+nfpms:
+  - id: deb
+    package_name: iotserver
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    homepage: https://github.com/pat-rohn/go-iotedge
+    maintainer: pat-rohn
+    description: IoT edge server receiving device data over HTTP and MQTT and storing it as timeseries.
+    license: MIT
+    formats: [deb]
+    bindir: /usr/bin
+    contents:
+      - src: packaging/systemd/iotserver.service
+        dst: /lib/systemd/system/iotserver.service
+        file_info:
+          mode: 0644
+    scripts:
+      postinstall: packaging/deb/postinstall.sh
+      preremove: packaging/deb/preremove.sh
+      postremove: packaging/deb/postremove.sh
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  draft: true # review the notes on GitHub before publishing

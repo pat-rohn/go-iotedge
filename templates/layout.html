@@ -51,6 +51,7 @@
                         Logout
                     </button>
                     <div class="build-info">
+                        {{with .Build.Version}}<span>Version {{.}}</span>{{end}}
                         <span>Built {{.Build.Date}}</span>
                         <span>{{.Build.Commit}}</span>
                     </div>
