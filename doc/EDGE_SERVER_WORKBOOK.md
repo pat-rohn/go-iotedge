@@ -178,8 +178,10 @@ generation step in the build, existing templates reused.
   crosshair + keyboard, table view, colours validated light and dark.
 
 ### Phase 4 — Operations ⬜
-- [ ] P4 systemd unit + GoReleaser
-- [ ] A6 TimescaleDB setup notes for the Postgres deployment
+- [x] P4 systemd unit + GoReleaser (`47a73ed`): deb/tar.gz for amd64, arm64,
+      armv7, version stamped; snapshot build verified locally. Releases need the
+      `../timeseries` replace resolved for builds outside this workspace
+- [x] A6 TimescaleDB notes in `doc/TIMESCALEDB.md` (not run against TimescaleDB here)
 - [ ] S7 TLS via reverse proxy, `Secure` cookies
 
 ## Decisions (2026-10-22)
