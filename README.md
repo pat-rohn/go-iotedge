@@ -155,6 +155,10 @@ FROM
   Tag ilike 'Wemos2Temperature'
 ```
 
+On a Postgres server that keeps years of readings, see
+[doc/TIMESCALEDB.md](doc/TIMESCALEDB.md) for turning the table into a
+compressed TimescaleDB hypertable with hourly aggregates for Grafana.
+
 ## Example using [Grafana](https://grafana.com/)
 
 ![alt text](https://raw.githubusercontent.com/pat-rohn/go-iotedge/main/grafana-example.png)
